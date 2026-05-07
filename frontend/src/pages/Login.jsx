@@ -7,7 +7,7 @@ export default function Login() {
     const { login } = useAuth();
     const nav = useNavigate();
     const [email, setEmail] = useState("admin@wms.com");
-    const [password, setPassword] = useState("admin123");
+    const [password, setPassword] = useState("Admin123!");
     const [err, setErr] = useState("");
     const [busy, setBusy] = useState(false);
 
@@ -138,9 +138,9 @@ export default function Login() {
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                             {[
-                                { r: "Admin", e: "admin@wms.com", p: "admin123" },
-                                { r: "Manager", e: "manager@wms.com", p: "manager123" },
-                                { r: "Operator", e: "operator@wms.com", p: "operator123" },
+                                { r: "Admin", e: "admin@wms.com", p: "Admin123!" },
+                                { r: "Manager", e: "manager@wms.com", p: "Manager123!" },
+                                { r: "Operator", e: "operator@wms.com", p: "Operator123!" },
                             ].map((q) => (
                                 <button
                                     key={q.r}
