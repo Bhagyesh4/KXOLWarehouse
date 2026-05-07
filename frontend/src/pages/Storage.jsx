@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { Snowflake, Layers, Package2, ArrowRight, X } from "lucide-react";
+import { Snowflake, Layers, Package2, ArrowRight, X, Sparkles } from "lucide-react";
+import ZoneProvisionModal from "../components/ZoneProvisionModal";
 
 export default function Storage() {
     const [zones, setZones] = useState([]);
@@ -9,6 +10,12 @@ export default function Storage() {
     const [filterRow, setFilterRow] = useState("ALL");
     const [filterType, setFilterType] = useState("ALL");
     const [openLane, setOpenLane] = useState(null);
+    const [provisionZone, setProvisionZone] = useState(null);
+
+    const reloadZones = async () => {
+        const z = await api.get("/storage/zones");
+        setZones(z.data);
+    };
 
     useEffect(() => {
         (async () => {
@@ -137,9 +144,17 @@ export default function Storage() {
                     <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400 mb-1">
                         // ZONE NOT CONFIGURED
                     </div>
-                    <div className="text-gray-400 text-sm">
-                        Upload a blueprint for <span className="text-white font-mono">{activeZoneInfo.zone}</span> to provision storage.
+                    <div className="text-gray-400 text-sm mb-5">
+                        Upload a blueprint or configure manually for{" "}
+                        <span className="text-white font-mono">{activeZoneInfo.zone}</span>.
                     </div>
+                    <button
+                        onClick={() => setProvisionZone(activeZoneInfo)}
+                        data-testid="provision-zone-btn"
+                        className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-black px-5 py-2.5 text-sm font-bold uppercase tracking-wider"
+                    >
+                        <Sparkles size={14} /> Provision Zone
+                    </button>
                 </div>
             )}
 
@@ -231,6 +246,18 @@ export default function Storage() {
                 <LaneDrawer
                     lane={openLane}
                     onClose={() => setOpenLane(null)}
+                />
+            )}
+
+            {provisionZone && (
+                <ZoneProvisionModal
+                    zone={provisionZone}
+                    onClose={() => setProvisionZone(null)}
+                    onSaved={async () => {
+                        await reloadZones();
+                        setActiveZone(provisionZone.zone);
+                        setProvisionZone(null);
+                    }}
                 />
             )}
         </div>
@@ -398,36 +425,60 @@ function LaneDrawer({ lane, onClose }) {
                         {contents === null ? (
                             <div className="text-sm text-gray-500 font-mono">SCANNING...</div>
                         ) : (
-                            contents.map((c, i) => (
-                                <div
-                                    key={i}
-                                    className={`flex items-center gap-3 px-3 py-2 border ${
-                                        c.item ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5"
-                                    }`}
-                                >
-                                    <Layers
-                                        size={12}
-                                        className={c.item ? "text-emerald-400 shrink-0" : "text-gray-600 shrink-0"}
-                                    />
-                                    <div className="font-mono text-[10px] text-amber-400 w-44 shrink-0">
-                                        {c.bin.code}
+                            contents.map((c, i) => {
+                                const exp = c.item?.expiry_date;
+                                const daysLeft = exp
+                                    ? Math.floor(
+                                          (new Date(exp).getTime() - Date.now()) / 86400000
+                                      )
+                                    : null;
+                                const expClass =
+                                    daysLeft === null
+                                        ? ""
+                                        : daysLeft < 30
+                                          ? "bg-red-500/10 text-red-400 border-red-500/30"
+                                          : daysLeft < 90
+                                            ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                            : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+                                return (
+                                    <div
+                                        key={i}
+                                        className={`flex items-center gap-3 px-3 py-2 border ${
+                                            c.item ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5"
+                                        }`}
+                                    >
+                                        <Layers
+                                            size={12}
+                                            className={c.item ? "text-emerald-400 shrink-0" : "text-gray-600 shrink-0"}
+                                        />
+                                        <div className="font-mono text-[10px] text-amber-400 w-44 shrink-0">
+                                            {c.bin.code}
+                                        </div>
+                                        {c.item ? (
+                                            <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm truncate">{c.item.sku.name}</div>
+                                                    <div className="font-mono text-[10px] text-gray-500">
+                                                        {c.item.sku.sku_code}
+                                                        {c.item.batch_no && ` · BATCH ${c.item.batch_no}`}
+                                                    </div>
+                                                </div>
+                                                {daysLeft !== null && (
+                                                    <div
+                                                        className={`shrink-0 font-mono text-[10px] px-2 py-0.5 border ${expClass}`}
+                                                    >
+                                                        EXP {exp} · {daysLeft}d
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="font-mono text-[10px] text-gray-600 uppercase">
+                                                Empty slot
+                                            </div>
+                                        )}
                                     </div>
-                                    {c.item ? (
-                                        <div className="flex-1 min-w-0">
-                                            <div className="text-sm truncate">
-                                                {c.item.sku.name}
-                                            </div>
-                                            <div className="font-mono text-[10px] text-gray-500">
-                                                {c.item.sku.sku_code} · {c.item.qty} pallet
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="font-mono text-[10px] text-gray-600 uppercase">
-                                            Empty slot
-                                        </div>
-                                    )}
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>

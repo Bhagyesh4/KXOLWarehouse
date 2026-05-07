@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import Barcode from "react-barcode";
 import { api } from "../lib/api";
-import { Search, Plus, X, Trash2, Edit3 } from "lucide-react";
+import { Search, Plus, X, Trash2, Edit3, ScanLine } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import Scanner from "../components/Scanner";
 
 export default function Inventory() {
     const { user } = useAuth();
@@ -12,6 +13,7 @@ export default function Inventory() {
     const [editing, setEditing] = useState(null);
     const [view, setView] = useState(null);
     const [stockDetail, setStockDetail] = useState([]);
+    const [scanOpen, setScanOpen] = useState(false);
 
     const canEdit = user?.role === "admin" || user?.role === "manager";
     const canDelete = user?.role === "admin";
@@ -74,6 +76,13 @@ export default function Inventory() {
                             className="bg-[#090a0c] border border-white/10 pl-9 pr-3 py-2 font-mono text-sm w-72 focus:border-amber-500 focus:outline-none"
                         />
                     </div>
+                    <button
+                        data-testid="scan-btn"
+                        onClick={() => setScanOpen(true)}
+                        className="flex items-center gap-2 border border-white/10 hover:border-amber-500/40 hover:text-amber-400 text-gray-300 px-4 py-2 text-sm font-bold uppercase tracking-wider"
+                    >
+                        <ScanLine size={14} /> Scan
+                    </button>
                     {canEdit && (
                         <button
                             data-testid="add-sku-btn"
@@ -223,6 +232,25 @@ export default function Inventory() {
                         </div>
                     </div>
                 </div>
+            )}
+            {scanOpen && (
+                <Scanner
+                    onScan={(code) => {
+                        setQ(code);
+                        setScanOpen(false);
+                        // Try open the SKU detail if exact match
+                        setTimeout(async () => {
+                            try {
+                                const r = await api.get(
+                                    `/inventory/skus?q=${encodeURIComponent(code)}`
+                                );
+                                const exact = r.data.find((s) => s.sku_code === code);
+                                if (exact) openView(exact);
+                            } catch {}
+                        }, 200);
+                    }}
+                    onClose={() => setScanOpen(false)}
+                />
             )}
         </div>
     );

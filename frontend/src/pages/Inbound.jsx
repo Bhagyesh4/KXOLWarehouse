@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { ArrowDownToLine, Plus, X, CheckCircle2 } from "lucide-react";
+import { ArrowDownToLine, Plus, X, CheckCircle2, Printer } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export default function Inbound() {
@@ -144,9 +145,29 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, canRece
                             </button>
                         )}
                         {!canReceive && o.status === "completed" && (
-                            <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-mono">
-                                ✓ Received
+                            <div className="flex items-center justify-between">
+                                <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-mono">
+                                    ✓ Received
+                                </div>
+                                <Link
+                                    to={`/print/grn/${o.id}`}
+                                    target="_blank"
+                                    data-testid={`print-grn-${idx}`}
+                                    className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300"
+                                >
+                                    <Printer size={11} /> GRN
+                                </Link>
                             </div>
+                        )}
+                        {canReceive && o.status === "completed" && (
+                            <Link
+                                to={`/print/grn/${o.id}`}
+                                target="_blank"
+                                data-testid={`print-grn-${idx}`}
+                                className="mt-2 flex items-center justify-center gap-2 border border-white/10 text-gray-400 hover:text-amber-400 hover:border-amber-500/40 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors"
+                            >
+                                <Printer size={12} /> Print GRN
+                            </Link>
                         )}
                     </div>
                 ))}
@@ -160,7 +181,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
         po_number: `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
         supplier: "",
         expected_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-        items: [{ sku_id: "", qty: 1, location_id: "" }],
+        items: [{ sku_id: "", qty: 1, location_id: "", batch_no: "", manufacture_date: "", expiry_date: "" }],
     });
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
@@ -182,7 +203,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
     };
 
     const addRow = () =>
-        setForm({ ...form, items: [...form.items, { sku_id: "", qty: 1, location_id: "" }] });
+        setForm({ ...form, items: [...form.items, { sku_id: "", qty: 1, location_id: "", batch_no: "", manufacture_date: "", expiry_date: "" }] });
 
     const updateRow = (i, k, v) => {
         const items = [...form.items];
@@ -224,50 +245,78 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                                 + Add Row
                             </button>
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                             {form.items.map((it, i) => (
-                                <div key={i} className="grid grid-cols-12 gap-2">
-                                    <select
-                                        data-testid={`inbound-item-sku-${i}`}
-                                        value={it.sku_id}
-                                        onChange={(e) => updateRow(i, "sku_id", e.target.value)}
-                                        className="col-span-5 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
-                                    >
-                                        <option value="">— Select SKU —</option>
-                                        {skus.map((s) => (
-                                            <option key={s.id} value={s.id}>
-                                                {s.sku_code} · {s.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <select
-                                        data-testid={`inbound-item-loc-${i}`}
-                                        value={it.location_id}
-                                        onChange={(e) => updateRow(i, "location_id", e.target.value)}
-                                        className="col-span-4 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
-                                    >
-                                        <option value="">— Bin —</option>
-                                        {locs.map((l) => (
-                                            <option key={l.id} value={l.id}>
-                                                {l.code}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <input
-                                        data-testid={`inbound-item-qty-${i}`}
-                                        type="number"
-                                        min="1"
-                                        value={it.qty}
-                                        onChange={(e) => updateRow(i, "qty", e.target.value)}
-                                        className="col-span-2 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => removeRow(i)}
-                                        className="col-span-1 text-gray-500 hover:text-red-400"
-                                    >
-                                        <X size={14} />
-                                    </button>
+                                <div key={i} className="bg-[#0d0e12] border border-white/5 p-2 space-y-1.5">
+                                    <div className="grid grid-cols-12 gap-2">
+                                        <select
+                                            data-testid={`inbound-item-sku-${i}`}
+                                            value={it.sku_id}
+                                            onChange={(e) => updateRow(i, "sku_id", e.target.value)}
+                                            className="col-span-5 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
+                                        >
+                                            <option value="">— Select SKU —</option>
+                                            {skus.map((s) => (
+                                                <option key={s.id} value={s.id}>
+                                                    {s.sku_code} · {s.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <select
+                                            data-testid={`inbound-item-loc-${i}`}
+                                            value={it.location_id}
+                                            onChange={(e) => updateRow(i, "location_id", e.target.value)}
+                                            className="col-span-4 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
+                                        >
+                                            <option value="">— Bin —</option>
+                                            {locs.map((l) => (
+                                                <option key={l.id} value={l.id}>
+                                                    {l.code}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <input
+                                            data-testid={`inbound-item-qty-${i}`}
+                                            type="number"
+                                            min="1"
+                                            value={it.qty}
+                                            onChange={(e) => updateRow(i, "qty", e.target.value)}
+                                            placeholder="Qty"
+                                            className="col-span-2 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => removeRow(i)}
+                                            className="col-span-1 text-gray-500 hover:text-red-400"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <input
+                                            data-testid={`inbound-item-batch-${i}`}
+                                            value={it.batch_no}
+                                            onChange={(e) => updateRow(i, "batch_no", e.target.value)}
+                                            placeholder="Batch / Lot No."
+                                            className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                        />
+                                        <input
+                                            data-testid={`inbound-item-mfg-${i}`}
+                                            type="date"
+                                            value={it.manufacture_date}
+                                            onChange={(e) => updateRow(i, "manufacture_date", e.target.value)}
+                                            placeholder="MFG"
+                                            className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                        />
+                                        <input
+                                            data-testid={`inbound-item-exp-${i}`}
+                                            type="date"
+                                            value={it.expiry_date}
+                                            onChange={(e) => updateRow(i, "expiry_date", e.target.value)}
+                                            placeholder="EXP"
+                                            className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                        />
+                                    </div>
                                 </div>
                             ))}
                         </div>

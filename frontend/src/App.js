@@ -10,6 +10,8 @@ import Inbound from "./pages/Inbound";
 import Outbound from "./pages/Outbound";
 import Storage from "./pages/Storage";
 import Reports from "./pages/Reports";
+import PrintGRN from "./pages/PrintGRN";
+import PrintPickList from "./pages/PrintPickList";
 import { Toaster } from "sonner";
 
 export default function App() {
@@ -20,6 +22,22 @@ export default function App() {
                 <Routes>
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
+                    <Route
+                        path="/print/grn/:id"
+                        element={
+                            <ProtectedRoute>
+                                <PrintGRN />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/print/pick/:id"
+                        element={
+                            <ProtectedRoute>
+                                <PrintPickList />
+                            </ProtectedRoute>
+                        }
+                    />
                     <Route
                         element={
                             <ProtectedRoute>

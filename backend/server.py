@@ -104,6 +104,9 @@ class InboundItemIn(BaseModel):
     sku_id: str
     qty: int
     location_id: str
+    batch_no: Optional[str] = None
+    manufacture_date: Optional[str] = None
+    expiry_date: Optional[str] = None
 
 
 class InboundIn(BaseModel):
@@ -111,6 +114,13 @@ class InboundIn(BaseModel):
     supplier: str
     expected_date: str
     items: List[InboundItemIn]
+
+
+class ZoneProvisionIn(BaseModel):
+    zone_code: str
+    zone_name: str
+    temperature: float
+    rows: List[dict]  # [{row: "A", rack_type: "A", lanes: 13, depth: 4, levels: 4, weight_kg: 8000, lane_start: 26}]
 
 
 class OutboundItemIn(BaseModel):
@@ -317,7 +327,7 @@ async def zones(user: dict = Depends(get_user)):
 async def lane_contents(row: str, lane_number: int, user: dict = Depends(get_user)):
     """Return all bins of a single lane with their pallet contents in one call."""
     bins = await db.locations.find(
-        {"zone": "COLD-1", "row_label": row, "lane_number": lane_number},
+        {"row_label": row, "lane_number": lane_number},
         {"_id": 0},
     ).sort([("level", 1), ("position", 1)]).to_list(500)
     bin_ids = [b["id"] for b in bins]
@@ -325,11 +335,215 @@ async def lane_contents(row: str, lane_number: int, user: dict = Depends(get_use
     sku_ids = list({s["sku_id"] for s in stock})
     skus = await db.skus.find({"id": {"$in": sku_ids}}, {"_id": 0, "id": 1, "sku_code": 1, "name": 1, "category": 1}).to_list(500)
     sku_map = {s["id"]: s for s in skus}
-    stock_by_loc = {s["location_id"]: {"sku": sku_map.get(s["sku_id"]), "qty": s["qty"]} for s in stock}
+    stock_by_loc = {
+        s["location_id"]: {
+            "sku": sku_map.get(s["sku_id"]),
+            "qty": s["qty"],
+            "batch_no": s.get("batch_no"),
+            "manufacture_date": s.get("manufacture_date"),
+            "expiry_date": s.get("expiry_date"),
+            "received_date": s.get("received_date"),
+        }
+        for s in stock
+    }
     out = []
     for b in bins:
         out.append({"bin": b, "item": stock_by_loc.get(b["id"])})
     return out
+
+
+# ---------- Blueprint Upload (AI Parse + Manual Provision) ----------
+from fastapi import UploadFile, File, Form
+
+
+@api.post("/storage/parse-blueprint")
+async def parse_blueprint(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    """Use Claude to parse uploaded blueprint PDF and suggest rack configuration."""
+    import json as json_lib
+    import fitz  # PyMuPDF
+
+    raw = await file.read()
+    text = ""
+    try:
+        doc = fitz.open(stream=raw, filetype="pdf")
+        for page in doc:
+            text += page.get_text() + "\n"
+        doc.close()
+    except Exception as e:
+        raise HTTPException(400, f"Could not read PDF: {e}")
+
+    if not text.strip():
+        raise HTTPException(400, "Could not extract text from blueprint")
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=os.environ["EMERGENT_LLM_KEY"],
+            session_id=f"bp-parse-{user['id']}-{uuid.uuid4()}",
+            system_message=(
+                "You are a warehouse blueprint analyst. Extract rack/lane configuration from the blueprint text "
+                "and return STRICT JSON only (no prose, no markdown). Schema: "
+                '{"zone_name": "string", "temperature": number_celsius, "rows": ['
+                '{"row": "A|B|C|...", "rack_type": "A|B|C", "lanes": int, "lane_start": int, '
+                '"levels": int, "depth": int, "weight_kg": int}]}. '
+                "If a field is unclear, infer reasonable defaults (levels=4, depth=4, weight_kg=8000). "
+                "If the blueprint mentions cold storage temperature use it; otherwise use 22 (ambient)."
+            ),
+        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+
+        msg = UserMessage(text=f"BLUEPRINT TEXT:\n\n{text[:8000]}")
+        response = await chat.send_message(msg)
+        # try to parse JSON from response
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```")[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+        config = json_lib.loads(cleaned)
+        return {"config": config, "raw_response": response}
+    except json_lib.JSONDecodeError as e:
+        return {
+            "config": {
+                "zone_name": "New Zone",
+                "temperature": 22,
+                "rows": [{"row": "A", "rack_type": "A", "lanes": 5, "lane_start": 1, "levels": 4, "depth": 4, "weight_kg": 8000}],
+            },
+            "warning": f"Could not parse AI response as JSON, returning defaults. Raw: {response[:200]}",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"AI parse failed: {e}")
+
+
+@api.post("/storage/zones/{zone_code}/provision")
+async def provision_zone(
+    zone_code: str,
+    body: ZoneProvisionIn,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    """Create lanes for a zone from a config (AI-suggested or manually entered)."""
+    if zone_code != body.zone_code:
+        raise HTTPException(400, "Zone code mismatch")
+
+    # Refuse if zone already has bins
+    if await db.locations.count_documents({"zone": zone_code}) > 0:
+        raise HTTPException(400, "Zone already provisioned")
+
+    locs = []
+    for row_cfg in body.rows:
+        row_label = row_cfg["row"]
+        rack_type = row_cfg.get("rack_type", "A")
+        lanes_count = int(row_cfg["lanes"])
+        lane_start = int(row_cfg.get("lane_start", 1))
+        levels = int(row_cfg.get("levels", 4))
+        depth = int(row_cfg.get("depth", 4))
+        weight_kg = int(row_cfg.get("weight_kg", 8000))
+        for i in range(lanes_count):
+            lane_num = lane_start + i
+            for level in range(1, levels + 1):
+                for pos in range(1, depth + 1):
+                    locs.append({
+                        "id": str(uuid.uuid4()),
+                        "code": f"{zone_code}-{row_label}-L{lane_num:02d}-LV{level}-P{pos:02d}",
+                        "zone": zone_code,
+                        "zone_name": body.zone_name,
+                        "temperature": body.temperature,
+                        "row_label": row_label,
+                        "rack_type": rack_type,
+                        "lane_number": lane_num,
+                        "level": level,
+                        "position": pos,
+                        "depth": depth,
+                        "levels": levels,
+                        "weight_capacity_kg": weight_kg,
+                        "capacity": 1,
+                        "occupied": 0,
+                    })
+
+    if locs:
+        await db.locations.insert_many(locs)
+
+    # Update zones_meta
+    await db.zones_meta.update_one(
+        {"zone": zone_code},
+        {"$set": {
+            "zone": zone_code,
+            "name": body.zone_name,
+            "temperature": body.temperature,
+            "placeholder": False,
+        }},
+        upsert=True,
+    )
+    return {"ok": True, "bins_created": len(locs)}
+
+
+# ---------- FEFO ----------
+@api.get("/inventory/skus/{sku_id}/pallets")
+async def sku_pallets(sku_id: str, user: dict = Depends(get_user)):
+    """Return all pallets of a SKU sorted by expiry date ascending (FEFO)."""
+    rows = await db.stock.find({"sku_id": sku_id, "qty": {"$gt": 0}}, {"_id": 0}).to_list(500)
+    out = []
+    for r in rows:
+        loc = await db.locations.find_one({"id": r["location_id"]}, {"_id": 0, "code": 1, "zone": 1})
+        out.append({
+            "location": loc,
+            "qty": r["qty"],
+            "batch_no": r.get("batch_no"),
+            "expiry_date": r.get("expiry_date"),
+            "manufacture_date": r.get("manufacture_date"),
+            "received_date": r.get("received_date"),
+        })
+    # FEFO sort: items without expiry go last
+    out.sort(key=lambda x: (x.get("expiry_date") is None, x.get("expiry_date") or "9999-99-99"))
+    return out
+
+
+# ---------- Print views (GRN + Pick List) ----------
+@api.get("/inbound/{order_id}/grn")
+async def inbound_grn(order_id: str, user: dict = Depends(get_user)):
+    order = await db.inbound.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Not found")
+    enriched = []
+    for it in order["items"]:
+        sku = await db.skus.find_one({"id": it["sku_id"]}, {"_id": 0, "sku_code": 1, "name": 1, "unit": 1})
+        loc = await db.locations.find_one({"id": it["location_id"]}, {"_id": 0, "code": 1})
+        enriched.append({**it, "sku": sku, "location": loc})
+    order["items"] = enriched
+    return order
+
+
+@api.get("/outbound/{order_id}/picklist")
+async def outbound_picklist(order_id: str, user: dict = Depends(get_user)):
+    order = await db.outbound.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Not found")
+    enriched = []
+    for it in order["items"]:
+        sku = await db.skus.find_one({"id": it["sku_id"]}, {"_id": 0, "sku_code": 1, "name": 1, "unit": 1})
+        # Suggest FEFO pallets to pick
+        pallets = await db.stock.find({"sku_id": it["sku_id"], "qty": {"$gt": 0}}, {"_id": 0}).to_list(50)
+        pallets.sort(key=lambda x: (x.get("expiry_date") is None, x.get("expiry_date") or "9999"))
+        pick_locations = []
+        remaining = it["qty"]
+        for p in pallets:
+            if remaining <= 0:
+                break
+            loc = await db.locations.find_one({"id": p["location_id"]}, {"_id": 0, "code": 1})
+            take = min(p["qty"], remaining)
+            pick_locations.append({
+                "location": loc,
+                "qty": take,
+                "batch_no": p.get("batch_no"),
+                "expiry_date": p.get("expiry_date"),
+            })
+            remaining -= take
+        enriched.append({**it, "sku": sku, "pick_locations": pick_locations})
+    order["items"] = enriched
+    return order
 
 
 @api.get("/storage/lanes")
@@ -399,11 +613,19 @@ async def receive_inbound(order_id: str, user: dict = Depends(require_role("admi
         raise HTTPException(404, "Inbound order not found")
     if order["status"] == "completed":
         raise HTTPException(400, "Already completed")
+    received_at = datetime.now(timezone.utc).isoformat()
     for item in order["items"]:
         # update stock at location
         await db.stock.update_one(
             {"sku_id": item["sku_id"], "location_id": item["location_id"]},
-            {"$inc": {"qty": item["qty"]}},
+            {"$inc": {"qty": item["qty"]},
+             "$set": {
+                 "batch_no": item.get("batch_no"),
+                 "manufacture_date": item.get("manufacture_date"),
+                 "expiry_date": item.get("expiry_date"),
+                 "received_date": received_at,
+                 "ref": order["po_number"],
+             }},
             upsert=True,
         )
         await db.skus.update_one({"id": item["sku_id"]}, {"$inc": {"total_stock": item["qty"]}})
@@ -415,9 +637,11 @@ async def receive_inbound(order_id: str, user: dict = Depends(require_role("admi
             "location_id": item["location_id"],
             "qty": item["qty"],
             "ref": order["po_number"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "batch_no": item.get("batch_no"),
+            "expiry_date": item.get("expiry_date"),
+            "timestamp": received_at,
         })
-    await db.inbound.update_one({"id": order_id}, {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}})
+    await db.inbound.update_one({"id": order_id}, {"$set": {"status": "completed", "completed_at": received_at}})
     return {"ok": True}
 
 
@@ -639,7 +863,7 @@ CATEGORY DISTRIBUTION:
         return {"insights": f"AI service unavailable: {str(e)}", "generated_at": datetime.now(timezone.utc).isoformat()}
 
 
-SCHEMA_VERSION = 2  # bump to trigger re-seed
+SCHEMA_VERSION = 4  # bump to trigger re-seed
 
 
 # Drive-in rack types per blueprint
@@ -795,7 +1019,15 @@ async def seed_data():
                 if loc["occupied"] >= loc["capacity"]:
                     attempts += 1
                     continue
-                await db.stock.insert_one({"sku_id": sku["id"], "location_id": loc["id"], "qty": 1})
+                await db.stock.insert_one({
+                    "sku_id": sku["id"],
+                    "location_id": loc["id"],
+                    "qty": 1,
+                    "batch_no": f"B{random.randint(1000,9999)}-{sku['sku_code'][-3:]}",
+                    "manufacture_date": (datetime.now(timezone.utc) - timedelta(days=random.randint(30, 180))).date().isoformat(),
+                    "expiry_date": (datetime.now(timezone.utc) + timedelta(days=random.randint(15, 365))).date().isoformat(),
+                    "received_date": (datetime.now(timezone.utc) - timedelta(days=random.randint(1, 13))).isoformat(),
+                })
                 await db.locations.update_one({"id": loc["id"]}, {"$inc": {"occupied": 1}})
                 ts = datetime.now(timezone.utc) - timedelta(days=random.randint(1, 13), hours=random.randint(0, 23))
                 await db.movements.insert_one({

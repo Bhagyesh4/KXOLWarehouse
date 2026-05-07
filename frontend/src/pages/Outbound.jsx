@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Plus, X, ArrowRight } from "lucide-react";
+import { Plus, X, ArrowRight, Printer } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 const FLOW = ["pending", "picking", "packing", "shipped"];
@@ -105,6 +106,16 @@ export default function Outbound() {
                                             Advance <ArrowRight size={12} />
                                         </button>
                                     )}
+                                    {(st === "picking" || st === "packing" || st === "shipped" || st === "pending") && (
+                                        <Link
+                                            to={`/print/pick/${o.id}`}
+                                            target="_blank"
+                                            data-testid={`print-pick-${st}-${idx}`}
+                                            className="mt-1.5 w-full flex items-center justify-center gap-1 border border-white/10 text-gray-400 hover:text-amber-400 hover:border-amber-500/40 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors"
+                                        >
+                                            <Printer size={11} /> Pick List
+                                        </Link>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -177,6 +188,15 @@ function NewOutboundModal({ skus, onClose, onSaved }) {
                     <div className="grid grid-cols-2 gap-3">
                         <Field label="SO Number" value={form.so_number} onChange={(v) => setForm({ ...form, so_number: v })} testid="new-outbound-so" />
                         <Field label="Customer" value={form.customer} onChange={(v) => setForm({ ...form, customer: v })} testid="new-outbound-customer" />
+                    </div>
+
+                    <div className="border border-cyan-500/30 bg-cyan-500/5 p-3 flex items-start gap-2">
+                        <Printer size={14} className="text-cyan-400 mt-0.5 shrink-0" />
+                        <div className="text-[11px] text-gray-300 leading-relaxed">
+                            <span className="text-cyan-400 font-mono">FEFO ENABLED:</span> The pick-list will
+                            automatically suggest pallets ordered by soonest expiry first. Print it after creation
+                            to give floor staff specific bin coordinates.
+                        </div>
                     </div>
 
                     <div>

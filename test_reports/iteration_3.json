@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 3 — full end-to-end verification of 5 new WMS features (blueprint upload, pallet traceability, FEFO picking, browser-print GRN/PickList, mobile barcode scanner). Created /app/backend/tests/test_iteration3.py with 7 new tests; combined with backend_test.py all 30 backend tests pass (0 failures). All frontend critical flows verified via Playwright: provision modal (AMBIENT placeholder → upload step + skip-to-manual → 80-bin config preview + Provision Zone CTA), Cold-1 lane drawer with batch number + EXP date colored badges (red/amber/emerald) + days-left counter, Inventory page Scan button opens scanner-modal and closes via X, New Inbound modal exposes batch/MFG/EXP fields per item row, Outbound new SO modal shows FEFO informational banner, /print/grn/:id renders Goods Receipt Note with batch + expiry columns + print button, /print/pick/:id renders FEFO-ordered pick list with batch_no + expiry_date columns + print button. AMBIENT zone was provisioned during testing then cleaned up via Mongo (locations deleted, zones_meta reset to placeholder=true) so it stays untouched for retest.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "New Inbound + New Outbound modals", "issues": ["React hydration warning: <span> rendered as child of <option>. Comes from devtools/inspector instrumentation injecting a <span data-ve-dynamic='true'> inside <option> elements, which HTML disallows. Functionally harmless but pollutes the console. Likely from emergent dev-instrumentation; consider stripping in production build or using simple text children for <option>."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration3_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Suppress hydration warning for <option> children in Inbound.jsx (line ~260) and Outbound.jsx (line ~222) — render plain string instead of dynamically-wrapped span.",
+    "(Optional) Provide an admin endpoint to UNDO a provision (delete locations + reset zones_meta to placeholder) so tests / users can iterate; currently requires direct DB access to revert."
+  ],
+  "critical_code_review_comments": [
+    "POST /storage/parse-blueprint: when AI succeeds but returns invalid JSON, falls back to a generic 5-lane default but echoes back a partial AI response. Good. However, if EMERGENT_LLM_KEY is missing/invalid the endpoint raises 500 — consider catching auth errors and returning the same default config with a warning so the manual flow always works offline.",
+    "POST /storage/zones/{code}/provision: idempotency check is by 'count_documents > 0' on locations; if a previous half-failed provision leaves orphan locations, the user is locked out. Consider returning a structured 409 with a 'force=true' option to wipe and re-provision.",
+    "GET /inventory/skus/{id}/pallets and GET /outbound/{id}/picklist: both fetch locations one-by-one inside a loop (N+1). Acceptable at current scale (<50 pallets/SKU) but flag as a follow-up — bulk-fetch via {'$in': [...]} would be cleaner.",
+    "Inbound items model: batch_no/manufacture_date/expiry_date are Optional and not validated as ISO dates. A bad string (e.g., '2026/01') would silently persist. Consider Pydantic date type or regex validator.",
+    "Frontend hydration warning: <option> children dynamically wrapped in <span data-ve-dynamic> — see design_issues."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py"
+  ],
+  "success_rate": {
+    "backend": "100% (30/30 pytest passing)",
+    "frontend": "100% on critical flows (provision modal upload+manual, lane drawer trace badges, scanner modal open/close, inbound trace fields, outbound FEFO banner, GRN print page, Pick List print page)"
+  },
+  "test_credentials": "Admin admin@wms.com/admin123 — verified working",
+  "seed_data_creation": "AMBIENT zone was provisioned (5 lanes × 4 levels × 4 depth = 80 bins) during the idempotency test, then CLEANED UP — locations deleted and zones_meta reset to {placeholder:true, temperature:22}. TEST_PO_TRACE and TEST_SO_PICK orders left in DB for traceability of test runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Schema v4 active: every stock row has batch_no/manufacture_date/expiry_date/received_date. New backend endpoints added in iteration 3: POST /api/storage/parse-blueprint (multipart PDF, requires admin/manager), POST /api/storage/zones/{code}/provision (idempotent — re-call returns 400), GET /api/inventory/skus/{id}/pallets (FEFO sort), GET /api/inbound/{id}/grn, GET /api/outbound/{id}/picklist (FEFO pick suggestion). Frontend routes /print/grn/:id and /print/pick/:id render printable pages with [data-testid='print-btn']. Scanner modal at [data-testid='scanner-modal'] with [data-testid='scanner-close-btn']. Provision modal: blueprint-file-input, skip-upload-btn, provision-submit-btn. AMBIENT is the safe placeholder zone for provision tests — please clean up after by deleting db.locations where zone='AMBIENT' and resetting zones_meta to placeholder=true.",
+  "rca of the issue": "N/A — no bugs found. Two test-script bugs (lane contents response shape, GRN sku object missing 'id' field) were fixed in test_iteration3.py during this run; both were tester-side errors not server bugs."
+}
