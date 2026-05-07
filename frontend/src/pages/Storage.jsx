@@ -9,8 +9,6 @@ export default function Storage() {
     const [filterRow, setFilterRow] = useState("ALL");
     const [filterType, setFilterType] = useState("ALL");
     const [openLane, setOpenLane] = useState(null);
-    const [skus, setSkus] = useState({});
-    const [stockMap, setStockMap] = useState({});
 
     useEffect(() => {
         (async () => {
@@ -18,10 +16,6 @@ export default function Storage() {
             setZones(z.data);
             const cold1 = z.data.find((x) => x.zone === "COLD-1");
             setActiveZone(cold1?.zone || z.data[0]?.zone);
-            const sk = await api.get("/inventory/skus");
-            const map = {};
-            sk.data.forEach((s) => (map[s.id] = s));
-            setSkus(map);
         })();
     }, []);
 
@@ -237,7 +231,6 @@ export default function Storage() {
                 <LaneDrawer
                     lane={openLane}
                     onClose={() => setOpenLane(null)}
-                    skus={skus}
                 />
             )}
         </div>
@@ -351,39 +344,15 @@ function Legend() {
     );
 }
 
-function LaneDrawer({ lane, onClose, skus }) {
-    const [contents, setContents] = useState([]);
+function LaneDrawer({ lane, onClose }) {
+    const [contents, setContents] = useState(null);
     useEffect(() => {
         (async () => {
-            // fetch stock at each location of this lane
-            const out = await Promise.all(
-                lane.bins.map(async (b) => {
-                    if (!b.occupied) return { bin: b, sku: null };
-                    const r = await api.get(`/storage/locations?zone=COLD-1`);
-                    // we need stock per location; query stock collection via existing endpoint
-                    return { bin: b };
-                })
+            const r = await api.get(
+                `/storage/lanes/${lane.row}/${lane.lane_number}/contents`
             );
-            // Better: fetch /inventory/skus and find stock map - use a single query through movements
-            // Use inventory/skus/{id}/stock endpoints would be expensive - load all stock once
-            const allSkus = Object.values(skus);
-            const stockByLoc = {};
-            for (const sku of allSkus) {
-                try {
-                    const r = await api.get(`/inventory/skus/${sku.id}/stock`);
-                    r.data.forEach((row) => {
-                        stockByLoc[row.location.id] = { sku, qty: row.qty };
-                    });
-                } catch {}
-            }
-            setContents(
-                lane.bins.map((b) => ({
-                    bin: b,
-                    item: stockByLoc[b.id] || null,
-                }))
-            );
+            setContents(r.data);
         })();
-        // eslint-disable-next-line
     }, [lane]);
 
     return (
@@ -404,7 +373,7 @@ function LaneDrawer({ lane, onClose, skus }) {
                             ROW {lane.row} · LANE L{String(lane.lane_number).padStart(2, "0")}
                         </h3>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                    <button onClick={onClose} className="text-gray-400 hover:text-white" data-testid="lane-drawer-close">
                         <X size={20} />
                     </button>
                 </div>
@@ -423,11 +392,11 @@ function LaneDrawer({ lane, onClose, skus }) {
 
                 <div className="p-5">
                     <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-3">
-                        // PALLET CONTENTS // LIFO ORDER
+                        // PALLET CONTENTS // BY LEVEL × POSITION
                     </div>
                     <div className="space-y-1">
-                        {contents.length === 0 ? (
-                            <div className="text-sm text-gray-500">Loading contents...</div>
+                        {contents === null ? (
+                            <div className="text-sm text-gray-500 font-mono">SCANNING...</div>
                         ) : (
                             contents.map((c, i) => (
                                 <div
@@ -436,12 +405,10 @@ function LaneDrawer({ lane, onClose, skus }) {
                                         c.item ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5"
                                     }`}
                                 >
-                                    <div className="w-3 h-3 shrink-0">
-                                        <Layers
-                                            size={12}
-                                            className={c.item ? "text-emerald-400" : "text-gray-600"}
-                                        />
-                                    </div>
+                                    <Layers
+                                        size={12}
+                                        className={c.item ? "text-emerald-400 shrink-0" : "text-gray-600 shrink-0"}
+                                    />
                                     <div className="font-mono text-[10px] text-amber-400 w-44 shrink-0">
                                         {c.bin.code}
                                     </div>

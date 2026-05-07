@@ -313,6 +313,25 @@ async def zones(user: dict = Depends(get_user)):
     return out
 
 
+@api.get("/storage/lanes/{row}/{lane_number}/contents")
+async def lane_contents(row: str, lane_number: int, user: dict = Depends(get_user)):
+    """Return all bins of a single lane with their pallet contents in one call."""
+    bins = await db.locations.find(
+        {"zone": "COLD-1", "row_label": row, "lane_number": lane_number},
+        {"_id": 0},
+    ).sort([("level", 1), ("position", 1)]).to_list(500)
+    bin_ids = [b["id"] for b in bins]
+    stock = await db.stock.find({"location_id": {"$in": bin_ids}, "qty": {"$gt": 0}}, {"_id": 0}).to_list(500)
+    sku_ids = list({s["sku_id"] for s in stock})
+    skus = await db.skus.find({"id": {"$in": sku_ids}}, {"_id": 0, "id": 1, "sku_code": 1, "name": 1, "category": 1}).to_list(500)
+    sku_map = {s["id"]: s for s in skus}
+    stock_by_loc = {s["location_id"]: {"sku": sku_map.get(s["sku_id"]), "qty": s["qty"]} for s in stock}
+    out = []
+    for b in bins:
+        out.append({"bin": b, "item": stock_by_loc.get(b["id"])})
+    return out
+
+
 @api.get("/storage/lanes")
 async def lanes(zone: Optional[str] = None, user: dict = Depends(get_user)):
     """Return racks/lanes for drive-in style visualization."""
