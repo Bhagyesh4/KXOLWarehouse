@@ -61,6 +61,21 @@ let webpackConfig = {
 };
 
 webpackConfig.devServer = (devServerConfig) => {
+  devServerConfig.host = "0.0.0.0";
+  devServerConfig.port = 5000;
+  devServerConfig.allowedHosts = "all";
+  devServerConfig.client = {
+    ...(devServerConfig.client || {}),
+    webSocketURL: "auto://0.0.0.0:0/ws",
+  };
+  devServerConfig.proxy = [
+    {
+      context: ["/api"],
+      target: "http://localhost:8000",
+      changeOrigin: true,
+    },
+  ];
+
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
