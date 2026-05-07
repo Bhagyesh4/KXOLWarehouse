@@ -52,14 +52,19 @@ Build a Warehouse Management System with modules: Dashboard, Inventory Master, I
 ## Test Credentials
 See `/app/memory/test_credentials.md`
 
+### Iteration 3 (2026-05-07) — P1+P2 Feature Pack
+- **Blueprint Upload (AI + manual)**: `POST /api/storage/parse-blueprint` accepts a PDF; PyMuPDF extracts text; Claude Sonnet 4.5 returns structured JSON config. User reviews & edits in `ZoneProvisionModal` form, then `POST /api/storage/zones/{code}/provision` creates locations.
+- **Pallet Traceability**: every stock row carries `batch_no`, `manufacture_date`, `expiry_date`, `received_date`. New Inbound modal captures these per item; lane drawer shows them with color-coded expiry badges (red <30d, amber <90d, emerald ≥90d).
+- **FEFO Picking**: `GET /api/inventory/skus/{id}/pallets` and `GET /api/outbound/{id}/picklist` return pallets sorted by expiry asc.
+- **Print views**: `/print/grn/:id` (Goods Receipt Note) and `/print/pick/:id` (Pick List) — A4-friendly with `@media print` styles, browser Ctrl+P → PDF.
+- **Mobile Scanner**: `@zxing/browser` camera scanner (`Scanner.jsx`); Scan button on Inventory matches scanned barcode → opens SKU detail.
+- Schema v4 — tests: 30/30 pytest pass.
+
 ## Backlog / Next Tasks (P0 → P2)
-- **P1** — Upload blueprint UI to provision additional zones (COLD-2/COLD-3/AMBIENT)
-- **P1** — Pallet-level traceability (received-date, expiry-date, batch/lot numbers for cold chain compliance)
-- **P2** — Temperature monitoring log per zone with alerts
-- **P2** — FIFO suggestion engine when picking from drive-in (oldest pallet first based on inbound timestamp)
+- **P2** — Admin "unprovision zone" endpoint to safely wipe + reconfigure
 - **P2** — Customer/Supplier master tables with CRUD
-- **P2** — Print pick lists and goods-receipt notes (PDF export)
-- **P2** — Mobile-friendly scanner mode (camera-based barcode scanning)
+- **P2** — Date validation on traceability fields (Pydantic date type)
+- **P2** — Bulk-fetch optimisation for FEFO endpoints (replace N+1 with `$in`)
 
 ## API Surface
 Auth: `/api/auth/{register,login,logout,me}`
