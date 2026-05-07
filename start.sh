@@ -33,4 +33,4 @@ done
 # Start the frontend on port 5000
 echo "Starting frontend..."
 cd /home/runner/workspace/frontend
-PORT=5000 REACT_APP_BACKEND_URL="" BROWSER=none yarn start
+PORT=5000 REACT_APP_BACKEND_URL="" BROWSER=none DANGEROUSLY_DISABLE_HOST_CHECK=true yarn start
