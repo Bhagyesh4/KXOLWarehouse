@@ -112,4 +112,29 @@ if (isDevServer) {
   }
 }
 
+// Re-apply host settings AFTER withVisualEdits to ensure they are not overridden
+const prevDevServer = webpackConfig.devServer;
+webpackConfig.devServer = (devServerConfig) => {
+  const resolved = typeof prevDevServer === 'function'
+    ? prevDevServer(devServerConfig)
+    : devServerConfig;
+  resolved.host = "0.0.0.0";
+  resolved.port = 5000;
+  resolved.allowedHosts = "all";
+  resolved.client = {
+    ...(resolved.client || {}),
+    webSocketURL: "auto://0.0.0.0:0/ws",
+  };
+  if (!resolved.proxy) {
+    resolved.proxy = [
+      {
+        context: ["/api"],
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+    ];
+  }
+  return resolved;
+};
+
 module.exports = webpackConfig;

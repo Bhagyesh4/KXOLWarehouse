@@ -30,6 +30,10 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Start port 3000 → 5000 proxy so external domain (externalPort=80→localPort=3000) works
+echo "Starting port 3000 proxy..."
+node /home/runner/workspace/proxy3000.js &
+
 # Start the frontend on port 5000
 echo "Starting frontend..."
 cd /home/runner/workspace/frontend
