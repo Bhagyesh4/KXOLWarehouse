@@ -280,16 +280,72 @@ async def list_locations(zone: Optional[str] = None, user: dict = Depends(get_us
 async def zones(user: dict = Depends(get_user)):
     pipeline = [
         {"$group": {
-            "_id": "$zone",
+            "_id": {"zone": "$zone", "name": "$zone_name", "temp": "$temperature"},
             "capacity": {"$sum": "$capacity"},
             "occupied": {"$sum": "$occupied"},
             "bins": {"$sum": 1},
         }},
-        {"$sort": {"_id": 1}},
+        {"$sort": {"_id.zone": 1}},
     ]
     out = []
     async for r in db.locations.aggregate(pipeline):
-        out.append({"zone": r["_id"], "capacity": r["capacity"], "occupied": r["occupied"], "bins": r["bins"]})
+        out.append({
+            "zone": r["_id"]["zone"],
+            "name": r["_id"].get("name") or r["_id"]["zone"],
+            "temperature": r["_id"].get("temp"),
+            "capacity": r["capacity"],
+            "occupied": r["occupied"],
+            "bins": r["bins"],
+        })
+    # also include placeholder zones (no bins yet)
+    placeholders = await db.zones_meta.find({}, {"_id": 0}).to_list(50)
+    for p in placeholders:
+        if not any(o["zone"] == p["zone"] for o in out):
+            out.append({
+                "zone": p["zone"],
+                "name": p.get("name", p["zone"]),
+                "temperature": p.get("temperature"),
+                "capacity": 0,
+                "occupied": 0,
+                "bins": 0,
+                "placeholder": True,
+            })
+    return out
+
+
+@api.get("/storage/lanes")
+async def lanes(zone: Optional[str] = None, user: dict = Depends(get_user)):
+    """Return racks/lanes for drive-in style visualization."""
+    flt = {"zone": zone} if zone else {}
+    locs = await db.locations.find(flt, {"_id": 0}).to_list(5000)
+    # group by row + lane
+    lanes_map: dict = {}
+    for l in locs:
+        key = (l.get("row_label", "?"), l.get("lane_number", 0))
+        lane = lanes_map.setdefault(key, {
+            "row": l.get("row_label", "?"),
+            "lane_number": l.get("lane_number", 0),
+            "rack_type": l.get("rack_type"),
+            "levels": l.get("levels", 4),
+            "depth": l.get("depth", 0),
+            "weight_capacity_kg": l.get("weight_capacity_kg", 0),
+            "bins": [],
+        })
+        lane["bins"].append({
+            "id": l["id"],
+            "code": l["code"],
+            "level": l.get("level"),
+            "position": l.get("position"),
+            "occupied": l.get("occupied", 0),
+            "capacity": l.get("capacity", 1),
+        })
+    out = []
+    for lane in lanes_map.values():
+        lane["bins"].sort(key=lambda b: (b.get("level", 0), b.get("position", 0)))
+        lane["total_slots"] = len(lane["bins"])
+        lane["filled_slots"] = sum(1 for b in lane["bins"] if b["occupied"] > 0)
+        out.append(lane)
+    out.sort(key=lambda x: (x["row"], x["lane_number"]))
     return out
 
 
@@ -548,10 +604,11 @@ CATEGORY DISTRIBUTION:
             api_key=os.environ["EMERGENT_LLM_KEY"],
             session_id=f"wms-insights-{user['id']}",
             system_message=(
-                "You are a senior warehouse operations analyst. Analyze the snapshot and produce a sharp, "
-                "tactical report with: 1) a 2-line executive summary, 2) 3 prioritized actionable insights "
-                "(with bullet markers '>'), 3) a brief risk assessment. Use crisp, technical language. "
-                "Format output as plain text with section headers in CAPS. Keep total under 220 words."
+                "You are a senior cold-chain warehouse operations analyst overseeing a -20°C drive-in racking facility (LIFO). "
+                "Analyze the snapshot and produce a sharp, tactical report with: 1) a 2-line executive summary, "
+                "2) 3 prioritized actionable insights (with bullet markers '>'), 3) a brief risk assessment "
+                "(call out cold-chain compliance, perishability, FIFO violations from LIFO storage). "
+                "Use crisp, technical language. Format output as plain text with section headers in CAPS. Keep total under 220 words."
             ),
         ).with_model("anthropic", "claude-sonnet-4-5-20250929")
 
@@ -561,6 +618,23 @@ CATEGORY DISTRIBUTION:
     except Exception as e:
         logging.exception("AI insights failed")
         return {"insights": f"AI service unavailable: {str(e)}", "generated_at": datetime.now(timezone.utc).isoformat()}
+
+
+SCHEMA_VERSION = 2  # bump to trigger re-seed
+
+
+# Drive-in rack types per blueprint
+RACK_TYPES = {
+    "A": {"depth": 4, "levels": 4, "weight_kg": 8000, "lanes": 13},
+    "B": {"depth": 3, "levels": 4, "weight_kg": 12000, "lanes": 11},
+    "C": {"depth": 5, "levels": 4, "weight_kg": 20000, "lanes": 15},
+}
+
+PLACEHOLDER_ZONES = [
+    {"zone": "COLD-2", "name": "Cold Storage 2", "temperature": -18, "placeholder": True},
+    {"zone": "COLD-3", "name": "Cold Storage 3", "temperature": -22, "placeholder": True},
+    {"zone": "AMBIENT", "name": "Ambient Warehouse", "temperature": 22, "placeholder": True},
+]
 
 
 # ---------- Seed ----------
@@ -587,48 +661,92 @@ async def seed_data():
         elif not verify_pw(pw, existing["password_hash"]):
             await db.users.update_one({"email": em}, {"$set": {"password_hash": hash_pw(pw)}})
 
-    # locations: Zones A-D, Racks 1-5, Bins 1-6
+    # Schema migration: wipe inventory tables on version bump
+    meta = await db.app_meta.find_one({"_id": "schema"})
+    current_version = (meta or {}).get("version", 0)
+    if current_version < SCHEMA_VERSION:
+        await db.locations.delete_many({})
+        await db.skus.delete_many({})
+        await db.stock.delete_many({})
+        await db.movements.delete_many({})
+        await db.inbound.delete_many({})
+        await db.outbound.delete_many({})
+        await db.zones_meta.delete_many({})
+        await db.app_meta.update_one(
+            {"_id": "schema"}, {"$set": {"version": SCHEMA_VERSION}}, upsert=True
+        )
+
+    # Placeholder zones (no bins, just metadata)
+    if await db.zones_meta.count_documents({}) == 0:
+        await db.zones_meta.insert_many(PLACEHOLDER_ZONES)
+
+    # COLD-1 locations from blueprint
     if await db.locations.count_documents({}) == 0:
         locs = []
-        for zone in ["A", "B", "C", "D"]:
-            for rack in range(1, 6):
-                for bn in range(1, 7):
-                    locs.append({
-                        "id": str(uuid.uuid4()),
-                        "code": f"{zone}-R{rack}-B{bn:02d}",
-                        "zone": zone, "rack": str(rack), "bin": f"{bn:02d}",
-                        "capacity": 100, "occupied": 0,
-                    })
+        # Lane numbering 26..64 split across rows A, B, C
+        # Row A → Type A (lanes 26-38, 13 lanes)
+        # Row B → Type B (lanes 39-49, 11 lanes)
+        # Row C → Type C (lanes 50-64, 15 lanes)
+        plan = [
+            ("A", "A", list(range(26, 39))),  # 13 lanes
+            ("B", "B", list(range(39, 50))),  # 11 lanes
+            ("C", "C", list(range(50, 65))),  # 15 lanes
+        ]
+        for row_label, rack_type, lane_numbers in plan:
+            cfg = RACK_TYPES[rack_type]
+            depth = cfg["depth"]
+            levels = cfg["levels"]
+            weight_kg = cfg["weight_kg"]
+            for lane_num in lane_numbers:
+                for level in range(1, levels + 1):
+                    for pos in range(1, depth + 1):
+                        locs.append({
+                            "id": str(uuid.uuid4()),
+                            "code": f"COLD1-{row_label}-L{lane_num:02d}-LV{level}-P{pos:02d}",
+                            "zone": "COLD-1",
+                            "zone_name": "Cold Storage 1",
+                            "temperature": -20,
+                            "row_label": row_label,
+                            "rack_type": rack_type,
+                            "lane_number": lane_num,
+                            "level": level,
+                            "position": pos,
+                            "depth": depth,
+                            "levels": levels,
+                            "weight_capacity_kg": weight_kg,
+                            "capacity": 1,  # 1 pallet per slot
+                            "occupied": 0,
+                        })
         await db.locations.insert_many(locs)
 
-    # SKUs
+    # Cold-storage SKUs (frozen products)
     if await db.skus.count_documents({}) == 0:
         catalog = [
-            ("SKU-1001-A", "Industrial Bearing 6205", "Components", "EA", 12.50, 50),
-            ("SKU-1002-B", "Hydraulic Cylinder 32mm", "Hydraulics", "EA", 145.00, 8),
-            ("SKU-1003-C", "PLC Module S7-1200", "Electronics", "EA", 320.00, 5),
-            ("SKU-1004-D", "Steel Bracket L-90", "Hardware", "EA", 4.20, 200),
-            ("SKU-1005-E", "Servo Motor 400W", "Electronics", "EA", 240.00, 6),
-            ("SKU-1006-F", "Conveyor Belt Roll 10m", "Conveyors", "ROLL", 89.90, 20),
-            ("SKU-1007-G", "Hex Bolts M8x40 (100pk)", "Hardware", "PK", 8.50, 100),
-            ("SKU-1008-H", "Lubricant Oil ISO-VG-46", "Consumables", "L", 5.40, 60),
-            ("SKU-1009-I", "Safety Helmet Hi-Vis", "PPE", "EA", 22.00, 40),
-            ("SKU-1010-J", "Forklift Battery 48V", "Power", "EA", 1450.00, 3),
-            ("SKU-1011-K", "Pneumatic Valve 1/4\"", "Pneumatics", "EA", 18.30, 35),
-            ("SKU-1012-L", "Industrial Sensor IR", "Electronics", "EA", 56.00, 15),
-            ("SKU-1013-M", "Stretch Wrap Roll", "Packaging", "ROLL", 7.20, 80),
-            ("SKU-1014-N", "Carton Box 60x40x30", "Packaging", "EA", 1.80, 500),
-            ("SKU-1015-O", "Worklight LED 50W", "Electronics", "EA", 32.00, 25),
-            ("SKU-1016-P", "Pallet Jack Manual 2T", "Equipment", "EA", 320.00, 4),
-            ("SKU-1017-Q", "Cable AWG-12 100m", "Electronics", "ROLL", 78.00, 12),
-            ("SKU-1018-R", "Gear Reducer 1:30", "Mechanical", "EA", 410.00, 5),
-            ("SKU-1019-S", "Welding Rod E6013 5kg", "Consumables", "PK", 19.50, 60),
-            ("SKU-1020-T", "Hydraulic Hose 1m", "Hydraulics", "EA", 24.00, 45),
-            ("SKU-1021-U", "Compressor Oil 5L", "Consumables", "L", 32.00, 30),
-            ("SKU-1022-V", "Safety Glasses Pack", "PPE", "PK", 15.00, 50),
-            ("SKU-1023-W", "Electric Motor 1.5kW", "Electronics", "EA", 280.00, 7),
-            ("SKU-1024-X", "Roller Chain 80-1", "Mechanical", "M", 12.00, 100),
-            ("SKU-1025-Y", "Industrial Gloves L", "PPE", "PK", 6.80, 70),
+            ("FRZ-MEAT-001", "Frozen Beef Sirloin 20kg", "Frozen Meat", "PLT", 480.00, 4),
+            ("FRZ-MEAT-002", "Frozen Chicken Breast 25kg", "Frozen Meat", "PLT", 320.00, 5),
+            ("FRZ-MEAT-003", "Frozen Pork Loin 22kg", "Frozen Meat", "PLT", 380.00, 4),
+            ("FRZ-MEAT-004", "Frozen Lamb Chops 18kg", "Frozen Meat", "PLT", 540.00, 3),
+            ("FRZ-SEAF-001", "Frozen Atlantic Salmon 20kg", "Seafood", "PLT", 720.00, 3),
+            ("FRZ-SEAF-002", "Frozen Tiger Prawns 15kg", "Seafood", "PLT", 850.00, 2),
+            ("FRZ-SEAF-003", "Frozen Tuna Steaks 18kg", "Seafood", "PLT", 920.00, 3),
+            ("FRZ-DAIRY-001", "Frozen Butter Blocks 25kg", "Dairy", "PLT", 220.00, 6),
+            ("FRZ-DAIRY-002", "Vanilla Ice Cream Tubs 20L", "Ice Cream", "PLT", 180.00, 8),
+            ("FRZ-DAIRY-003", "Chocolate Ice Cream Tubs 20L", "Ice Cream", "PLT", 195.00, 6),
+            ("FRZ-DAIRY-004", "Strawberry Ice Cream 20L", "Ice Cream", "PLT", 200.00, 5),
+            ("FRZ-VEG-001", "Frozen Mixed Vegetables 15kg", "Vegetables", "PLT", 120.00, 8),
+            ("FRZ-VEG-002", "Frozen Sweet Corn 15kg", "Vegetables", "PLT", 95.00, 10),
+            ("FRZ-VEG-003", "Frozen Spinach Blocks 12kg", "Vegetables", "PLT", 110.00, 6),
+            ("FRZ-VEG-004", "Frozen Green Peas 15kg", "Vegetables", "PLT", 105.00, 8),
+            ("FRZ-FRUIT-001", "Frozen Strawberries 12kg", "Fruits", "PLT", 240.00, 5),
+            ("FRZ-FRUIT-002", "Frozen Blueberries 10kg", "Fruits", "PLT", 290.00, 4),
+            ("FRZ-FRUIT-003", "Frozen Mango Chunks 12kg", "Fruits", "PLT", 220.00, 5),
+            ("FRZ-DOUGH-001", "Frozen Pizza Dough Balls", "Bakery", "PLT", 140.00, 6),
+            ("FRZ-DOUGH-002", "Frozen Croissant Dough", "Bakery", "PLT", 165.00, 4),
+            ("FRZ-READY-001", "Frozen Lasagna Trays", "Ready Meals", "PLT", 280.00, 5),
+            ("FRZ-READY-002", "Frozen Chicken Curry Trays", "Ready Meals", "PLT", 260.00, 4),
+            ("FRZ-PROC-001", "Frozen Chicken Nuggets 12kg", "Processed", "PLT", 175.00, 8),
+            ("FRZ-PROC-002", "Frozen French Fries 15kg", "Processed", "PLT", 130.00, 12),
+            ("FRZ-PROC-003", "Frozen Spring Rolls 10kg", "Processed", "PLT", 155.00, 6),
         ]
         skus = []
         for code, name, cat, unit, price, reorder in catalog:
@@ -641,40 +759,49 @@ async def seed_data():
             })
         await db.skus.insert_many(skus)
 
-        # Distribute initial stock to random locations + create movement history
-        all_locs = await db.locations.find({}, {"_id": 0}).to_list(2000)
-        for sku in skus:
-            base_qty = random.randint(15, 180)
-            placements = random.sample(all_locs, k=random.randint(1, 3))
-            per = base_qty // len(placements)
-            for loc in placements:
-                qty = per + (base_qty - per * len(placements) if loc is placements[-1] else 0)
-                if qty <= 0:
+        # Distribute initial pallet stock across cold-1 lanes (LIFO from deepest)
+        all_locs = await db.locations.find({"zone": "COLD-1"}, {"_id": 0}).to_list(5000)
+        # group by lane, sort each lane LIFO (deepest first since drive-in)
+        # We simulate ~55-65% utilization
+        random.shuffle(all_locs)
+        target_fill = int(len(all_locs) * 0.58)
+        for i, sku in enumerate(skus):
+            pallets = random.randint(8, 28)  # pallets per SKU
+            placed = 0
+            attempts = 0
+            while placed < pallets and attempts < pallets * 2:
+                if not all_locs:
+                    break
+                loc = all_locs.pop()
+                if loc["occupied"] >= loc["capacity"]:
+                    attempts += 1
                     continue
-                await db.stock.insert_one({"sku_id": sku["id"], "location_id": loc["id"], "qty": qty})
-                await db.locations.update_one({"id": loc["id"]}, {"$inc": {"occupied": qty}})
-                # historical inbound
+                await db.stock.insert_one({"sku_id": sku["id"], "location_id": loc["id"], "qty": 1})
+                await db.locations.update_one({"id": loc["id"]}, {"$inc": {"occupied": 1}})
                 ts = datetime.now(timezone.utc) - timedelta(days=random.randint(1, 13), hours=random.randint(0, 23))
                 await db.movements.insert_one({
                     "id": str(uuid.uuid4()),
                     "type": "in",
                     "sku_id": sku["id"],
                     "location_id": loc["id"],
-                    "qty": qty,
+                    "qty": 1,
                     "ref": f"PO-INIT-{random.randint(1000,9999)}",
                     "timestamp": ts.isoformat(),
                 })
-            await db.skus.update_one({"id": sku["id"]}, {"$set": {"total_stock": base_qty}})
+                placed += 1
+                if sum(1 for l in await db.locations.find({"occupied": {"$gt": 0}}).to_list(5000)) >= target_fill:
+                    break
+            await db.skus.update_one({"id": sku["id"]}, {"$inc": {"total_stock": placed}})
 
         # historical outbound movements
         skus_db = await db.skus.find({}, {"_id": 0}).to_list(100)
-        for _ in range(40):
+        for _ in range(35):
             sku = random.choice(skus_db)
-            stocks = await db.stock.find({"sku_id": sku["id"], "qty": {"$gt": 0}}, {"_id": 0}).to_list(10)
+            stocks = await db.stock.find({"sku_id": sku["id"], "qty": {"$gt": 0}}, {"_id": 0}).to_list(50)
             if not stocks:
                 continue
             s = random.choice(stocks)
-            qty = random.randint(1, min(10, s["qty"]))
+            qty = 1  # one pallet per movement
             await db.stock.update_one({"sku_id": sku["id"], "location_id": s["location_id"]}, {"$inc": {"qty": -qty}})
             await db.locations.update_one({"id": s["location_id"]}, {"$inc": {"occupied": -qty}})
             await db.skus.update_one({"id": sku["id"]}, {"$inc": {"total_stock": -qty}})
@@ -692,11 +819,22 @@ async def seed_data():
     # Sample inbound orders
     if await db.inbound.count_documents({}) == 0:
         skus_db = await db.skus.find({}, {"_id": 0}).to_list(100)
-        locs_db = await db.locations.find({}, {"_id": 0}).to_list(2000)
-        suppliers = ["Acme Industrial", "TechSupply Co", "GlobalParts Ltd", "MetroSourcing", "PrimeVendor Inc"]
+        # only use unoccupied locations
+        free_locs = await db.locations.find({"$expr": {"$lt": ["$occupied", "$capacity"]}}, {"_id": 0}).to_list(5000)
+        suppliers = ["Arctic Foods Ltd", "FrostChain Suppliers", "PolarFresh Co", "Glacier Distributors", "IceVault Logistics"]
         for i in range(8):
             picks = random.sample(skus_db, k=random.randint(2, 4))
-            items = [{"sku_id": s["id"], "qty": random.randint(20, 80), "location_id": random.choice(locs_db)["id"]} for s in picks]
+            items = []
+            for s in picks:
+                if not free_locs:
+                    break
+                qty = random.randint(2, 6)
+                # need qty distinct locations
+                for _ in range(qty):
+                    if not free_locs:
+                        break
+                    loc = free_locs.pop()
+                    items.append({"sku_id": s["id"], "qty": 1, "location_id": loc["id"]})
             await db.inbound.insert_one({
                 "id": str(uuid.uuid4()),
                 "po_number": f"PO-2026-{1000+i:04d}",
@@ -711,11 +849,11 @@ async def seed_data():
     # Sample outbound
     if await db.outbound.count_documents({}) == 0:
         skus_db = await db.skus.find({}, {"_id": 0}).to_list(100)
-        customers = ["Apex Manufacturing", "Stellar Robotics", "BlueRiver Logistics", "OmegaCorp", "NorthBay Eng"]
+        customers = ["Metro Supermarkets", "FreshMart Chain", "ColdLink Retail", "OmegaFoods", "GroceryPro Inc"]
         statuses = ["pending", "picking", "packing", "shipped"]
         for i in range(10):
             picks = random.sample(skus_db, k=random.randint(2, 4))
-            items = [{"sku_id": s["id"], "qty": random.randint(1, 8)} for s in picks]
+            items = [{"sku_id": s["id"], "qty": random.randint(1, 4)} for s in picks]
             await db.outbound.insert_one({
                 "id": str(uuid.uuid4()),
                 "so_number": f"SO-2026-{2000+i:04d}",

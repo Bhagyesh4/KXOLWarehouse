@@ -72,7 +72,7 @@ export default function Layout() {
                     {user && (
                         <div className="mb-3">
                             <div className="text-xs text-gray-500 uppercase tracking-wider">
-                                Operator
+                                Signed in as
                             </div>
                             <div className="text-sm font-medium truncate">{user.name}</div>
                             <div className="font-mono text-[10px] text-amber-400 uppercase tracking-widest">
