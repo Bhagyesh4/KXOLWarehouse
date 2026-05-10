@@ -718,6 +718,298 @@ async def assign_flow_lane_sku(
     return {"ok": True, "updated": result.modified_count}
 
 
+# ════════════════════════════════════════════════════
+# SHUTTLE FIFO DEEP LANE — SHUTTLE_ZONE_A only
+# All other zones are completely unaffected.
+# ════════════════════════════════════════════════════
+
+SHUTTLE_ZONE = "SHUTTLE_ZONE_A"
+
+class ShuttleInboundIn(BaseModel):
+    lane_no: int          # 1-7
+    level_no: int         # 0-4
+    sku_id: str
+    batch_no: Optional[str] = None
+    manufacture_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    pallet_code: Optional[str] = None
+
+class ShuttleOutboundIn(BaseModel):
+    lane_no: int
+    level_no: int
+    ref: Optional[str] = None
+
+
+def _shuttle_code(lane: int, level: int, depth: int) -> str:
+    return f"SZA-{lane:02d}-L{level:02d}-D{depth:02d}"
+
+
+async def _shuttle_bin(lane: int, level: int, depth: int):
+    return await db.locations.find_one(
+        {"zone": SHUTTLE_ZONE, "lane_number": lane, "level": level, "position": depth},
+        {"_id": 0},
+    )
+
+
+@api.get("/shuttle/summary")
+async def shuttle_summary(user: dict = Depends(get_user)):
+    """Zone-level capacity and occupancy for SHUTTLE_ZONE_A."""
+    total = await db.locations.count_documents({"zone": SHUTTLE_ZONE})
+    occupied = await db.locations.count_documents({"zone": SHUTTLE_ZONE, "occupied": {"$gt": 0}})
+    return {
+        "zone": SHUTTLE_ZONE,
+        "zone_name": "Shuttle FIFO — Cold Storage",
+        "total_bins": total,
+        "occupied_bins": occupied,
+        "empty_bins": total - occupied,
+        "utilization_pct": round(occupied / total * 100, 1) if total else 0,
+        "lanes": 7,
+        "levels": 5,
+        "depth": 50,
+    }
+
+
+@api.get("/shuttle/lanes")
+async def shuttle_lanes(user: dict = Depends(get_user)):
+    """Return occupancy summary for every lane×level combination (35 combinations)."""
+    locs = await db.locations.find({"zone": SHUTTLE_ZONE}, {"_id": 0}).to_list(2000)
+    lane_map: dict = {}
+    for l in locs:
+        key = (l["lane_number"], l["level"])
+        entry = lane_map.setdefault(key, {
+            "lane_no": l["lane_number"],
+            "level_no": l["level"],
+            "total": 0,
+            "occupied": 0,
+            "last_inbound_depth": 0,
+        })
+        entry["total"] += 1
+        if l.get("occupied", 0) > 0:
+            entry["occupied"] += 1
+            if l["position"] > entry["last_inbound_depth"]:
+                entry["last_inbound_depth"] = l["position"]
+    out = sorted(lane_map.values(), key=lambda x: (x["lane_no"], x["level_no"]))
+    for e in out:
+        e["empty"] = e["total"] - e["occupied"]
+        e["utilization_pct"] = round(e["occupied"] / e["total"] * 100, 1) if e["total"] else 0
+    return out
+
+
+@api.get("/shuttle/lanes/{lane_no}/{level_no}")
+async def shuttle_lane_detail(lane_no: int, level_no: int, user: dict = Depends(get_user)):
+    """Return all 50 depth positions with pallet contents for a specific lane×level."""
+    locs = await db.locations.find(
+        {"zone": SHUTTLE_ZONE, "lane_number": lane_no, "level": level_no},
+        {"_id": 0},
+    ).sort("position", 1).to_list(60)
+
+    out = []
+    for loc in locs:
+        stock = None
+        if loc.get("occupied", 0) > 0:
+            s = await db.stock.find_one({"location_id": loc["id"], "qty": {"$gt": 0}}, {"_id": 0})
+            if s:
+                sku = await db.skus.find_one({"id": s["sku_id"]}, {"_id": 0, "sku_code": 1, "name": 1})
+                stock = {
+                    "sku_id": s["sku_id"],
+                    "sku_code": sku["sku_code"] if sku else "?",
+                    "sku_name": sku["name"] if sku else "?",
+                    "batch_no": s.get("batch_no"),
+                    "expiry_date": s.get("expiry_date"),
+                    "manufacture_date": s.get("manufacture_date"),
+                    "received_date": s.get("received_date"),
+                    "pallet_code": s.get("pallet_code"),
+                }
+        out.append({
+            "depth": loc["position"],
+            "code": loc["code"],
+            "bin_id": loc["id"],
+            "occupied": loc.get("occupied", 0) > 0,
+            "stock": stock,
+        })
+    return out
+
+
+@api.post("/shuttle/inbound")
+async def shuttle_inbound(body: ShuttleInboundIn, user: dict = Depends(require_role("admin", "manager", "operator"))):
+    """Place a pallet at the deepest available depth position (smart inbound)."""
+    # Find deepest occupied position to determine next available
+    locs = await db.locations.find(
+        {"zone": SHUTTLE_ZONE, "lane_number": body.lane_no, "level": body.level_no},
+        {"_id": 0},
+    ).sort("position", 1).to_list(60)
+
+    if not locs:
+        raise HTTPException(404, f"Lane {body.lane_no} Level {body.level_no} not found in SHUTTLE_ZONE_A")
+
+    # Find deepest occupied, next slot = deepest+1
+    occupied_positions = [l["position"] for l in locs if l.get("occupied", 0) > 0]
+    if len(occupied_positions) >= 50:
+        raise HTTPException(409, f"Lane {body.lane_no} Level {body.level_no} is fully occupied (50/50). No space available.")
+
+    next_depth = (max(occupied_positions) + 1) if occupied_positions else 1
+
+    # Validate no gap (continuity rule)
+    target_bin = next(l for l in locs if l["position"] == next_depth)
+
+    # Insert stock record
+    now = datetime.now(timezone.utc).isoformat()
+    stock_doc = {
+        "id": str(uuid.uuid4()),
+        "sku_id": body.sku_id,
+        "location_id": target_bin["id"],
+        "qty": 1,
+        "batch_no": body.batch_no,
+        "manufacture_date": body.manufacture_date,
+        "expiry_date": body.expiry_date,
+        "received_date": now,
+        "pallet_code": body.pallet_code or f"PLT-SZA-{body.lane_no:02d}{body.level_no:02d}{next_depth:02d}",
+    }
+    await db.stock.insert_one(stock_doc)
+    await db.locations.update_one({"id": target_bin["id"]}, {"$inc": {"occupied": 1}})
+
+    # Log movement
+    sku = await db.skus.find_one({"id": body.sku_id}, {"_id": 0, "sku_code": 1})
+    await db.shuttle_movements.insert_one({
+        "id": str(uuid.uuid4()),
+        "lane_no": body.lane_no,
+        "level_no": body.level_no,
+        "from_depth": None,
+        "to_depth": next_depth,
+        "pallet_code": stock_doc["pallet_code"],
+        "sku_code": sku["sku_code"] if sku else "?",
+        "movement_type": "inbound",
+        "timestamp": now,
+    })
+
+    return {
+        "ok": True,
+        "lane_no": body.lane_no,
+        "level_no": body.level_no,
+        "placed_at_depth": next_depth,
+        "bin_code": target_bin["code"],
+        "pallet_code": stock_doc["pallet_code"],
+    }
+
+
+@api.post("/shuttle/outbound")
+async def shuttle_outbound(body: ShuttleOutboundIn, user: dict = Depends(require_role("admin", "manager", "operator"))):
+    """
+    Dispatch the front pallet (D01) and shift all remaining pallets forward.
+    D02→D01, D03→D02, … last_occupied→(last_occupied-1), last_slot→EMPTY.
+    FIFO is enforced: cannot dispatch if D01 is empty.
+    """
+    locs = await db.locations.find(
+        {"zone": SHUTTLE_ZONE, "lane_number": body.lane_no, "level": body.level_no},
+        {"_id": 0},
+    ).sort("position", 1).to_list(60)
+
+    if not locs:
+        raise HTTPException(404, f"Lane {body.lane_no} Level {body.level_no} not found")
+
+    loc_by_depth = {l["position"]: l for l in locs}
+
+    # Validate D01 is occupied (FIFO enforcement)
+    d01 = loc_by_depth.get(1)
+    if not d01 or d01.get("occupied", 0) == 0:
+        raise HTTPException(409, "D01 is empty — no pallet to dispatch. FIFO requires picking from D01.")
+
+    # Capture D01 pallet info before dispatch
+    d01_stock = await db.stock.find_one({"location_id": d01["id"], "qty": {"$gt": 0}}, {"_id": 0})
+    if not d01_stock:
+        raise HTTPException(500, "D01 shows occupied but stock record missing — data inconsistency")
+
+    sku = await db.skus.find_one({"id": d01_stock["sku_id"]}, {"_id": 0, "sku_code": 1, "name": 1})
+    dispatched = {
+        "pallet_code": d01_stock.get("pallet_code"),
+        "sku_code": sku["sku_code"] if sku else "?",
+        "sku_name": sku["name"] if sku else "?",
+        "batch_no": d01_stock.get("batch_no"),
+        "expiry_date": d01_stock.get("expiry_date"),
+        "received_date": d01_stock.get("received_date"),
+        "bin_code": d01["code"],
+    }
+
+    # Remove D01 stock record
+    await db.stock.delete_one({"location_id": d01["id"], "qty": {"$gt": 0}})
+    await db.locations.update_one({"id": d01["id"]}, {"$set": {"occupied": 0}})
+
+    now = datetime.now(timezone.utc).isoformat()
+    ref = body.ref or f"SO-SHUTTLE-{body.lane_no:02d}"
+
+    # Log dispatch movement
+    await db.shuttle_movements.insert_one({
+        "id": str(uuid.uuid4()),
+        "lane_no": body.lane_no,
+        "level_no": body.level_no,
+        "from_depth": 1,
+        "to_depth": None,
+        "pallet_code": dispatched["pallet_code"],
+        "sku_code": dispatched["sku_code"],
+        "movement_type": "outbound",
+        "ref": ref,
+        "timestamp": now,
+    })
+
+    # Shuttle shift: move D2→D1, D3→D2, … until last occupied
+    occupied_depths = sorted([l["position"] for l in locs if l.get("occupied", 0) > 0])
+    # D01 was just cleared, shift from D02 upward
+    shifts = 0
+    for depth in range(2, 51):
+        src = loc_by_depth.get(depth)
+        if not src or src.get("occupied", 0) == 0:
+            break  # reached empty — no more to shift
+        dst = loc_by_depth.get(depth - 1)
+
+        # Move stock record location_id from src → dst
+        await db.stock.update_one(
+            {"location_id": src["id"], "qty": {"$gt": 0}},
+            {"$set": {"location_id": dst["id"]}},
+        )
+        await db.locations.update_one({"id": dst["id"]}, {"$set": {"occupied": 1}})
+        await db.locations.update_one({"id": src["id"]}, {"$set": {"occupied": 0}})
+
+        # Log each shift
+        await db.shuttle_movements.insert_one({
+            "id": str(uuid.uuid4()),
+            "lane_no": body.lane_no,
+            "level_no": body.level_no,
+            "from_depth": depth,
+            "to_depth": depth - 1,
+            "pallet_code": None,
+            "sku_code": dispatched["sku_code"],
+            "movement_type": "shift",
+            "ref": ref,
+            "timestamp": now,
+        })
+        shifts += 1
+
+    # Update SKU total_stock
+    await db.skus.update_one({"id": d01_stock["sku_id"]}, {"$inc": {"total_stock": -1}})
+
+    return {
+        "ok": True,
+        "dispatched": dispatched,
+        "pallets_shifted": shifts,
+        "lane_no": body.lane_no,
+        "level_no": body.level_no,
+    }
+
+
+@api.get("/shuttle/movements")
+async def shuttle_movement_history(
+    lane_no: Optional[int] = None,
+    limit: int = 100,
+    user: dict = Depends(get_user),
+):
+    """Return recent shuttle movement history (inbound / outbound / shift)."""
+    flt: dict = {"movement_type": {"$ne": "shift"}}  # exclude auto-shifts by default for cleaner log
+    if lane_no:
+        flt["lane_no"] = lane_no
+    docs = await db.shuttle_movements.find(flt, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+    return docs
+
+
 # ---------- Inbound ----------
 @api.get("/inbound")
 async def list_inbound(status: Optional[str] = None, user: dict = Depends(get_user)):

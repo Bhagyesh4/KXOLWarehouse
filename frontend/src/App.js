@@ -9,6 +9,7 @@ import Inventory from "./pages/Inventory";
 import Inbound from "./pages/Inbound";
 import Outbound from "./pages/Outbound";
 import Storage from "./pages/Storage";
+import ShuttleZone from "./pages/ShuttleZone";
 import Reports from "./pages/Reports";
 import PrintGRN from "./pages/PrintGRN";
 import PrintPickList from "./pages/PrintPickList";
@@ -59,6 +60,7 @@ export default function App() {
                         <Route path="/inbound" element={<Inbound />} />
                         <Route path="/outbound" element={<Outbound />} />
                         <Route path="/storage" element={<Storage />} />
+                        <Route path="/shuttle" element={<ShuttleZone />} />
                         <Route path="/reports" element={<Reports />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />

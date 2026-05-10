@@ -1,0 +1,251 @@
+You should implement this as a **Dynamic FIFO Deep-Lane Shuttle Logic** in your WMS.
+
+Since your rack has:
+
+* Single-side forklift entry
+* 7 pallet deep storage
+* Shuttle movement inside rack
+* FIFO requirement
+* Automatic pallet forward movement
+
+…the WMS must maintain a **virtual pallet sequence engine** instead of only static locations.
+
+Your shuttle rack drawing confirms deep-lane shuttle storage with 7 pallet depth and single-side access. 
+
+Use this exact prompt in [Replit](https://replit.com?utm_source=chatgpt.com):
+
+---
+
+# PROMPT FOR REPLIT – DYNAMIC FIFO SHUTTLE RACKING LOGIC
+
+I want to implement advanced FIFO Shuttle Racking Logic in my Warehouse Management System (WMS).
+
+Current Rack Design:
+
+* Shuttle Racking System
+* 7 pallet deep lane
+* 5 levels
+* Single-side forklift entry
+* Cold storage warehouse
+* FIFO inventory management
+* Shuttle automatically moves pallets inside rack
+
+Business Requirement:
+The pallet that enters first must dispatch first (FIFO).
+
+Since forklift can access only from one side:
+
+* When front pallet is removed,
+* All pallets behind it should automatically move forward virtually,
+* WMS must automatically update pallet depth positions,
+* No manual relocation entry should be required.
+
+Example:
+Initial Rack State:
+D1 = P001
+D2 = P002
+D3 = P003
+D4 = P004
+
+After dispatching P001:
+System should auto-update:
+D1 = P002
+D2 = P003
+D3 = P004
+D4 = EMPTY
+
+This represents shuttle movement inside rack.
+
+IMPORTANT:
+Physical pallets move automatically through shuttle.
+WMS must also auto-update virtual locations.
+
+Required Features:
+
+1. Dynamic Depth Management
+   Each rack location should have:
+
+* Rack
+* Bay
+* Level
+* Depth
+
+Example:
+R01-B03-L02-D01
+
+Depth positions:
+D01 = Front
+D07 = Back
+
+2. FIFO Engine
+   Implement:
+
+* Oldest pallet dispatch first
+* Automatic depth shifting
+* Auto-update pallet positions
+* Prevent wrong pallet picking
+
+3. Automatic Pallet Forward Movement
+   When front pallet removed:
+
+* Shift all pallets one position forward
+* Update database automatically
+* Create movement history logs
+* Update UI instantly
+
+4. Database Logic
+   Create tables:
+
+* pallets
+* pallet_movements
+* rack_positions
+* shuttle_movements
+
+Each pallet should contain:
+
+* pallet_id
+* sku
+* batch_no
+* inbound_time
+* current_depth
+* status
+* rack_position
+
+5. Auto Reindex Algorithm
+   After pallet dispatch:
+   FOR depth = 2 TO 7:
+   Move pallet at depth(n) to depth(n-1)
+
+Last depth becomes EMPTY.
+
+6. FIFO Validation
+   System should:
+
+* Block non-FIFO picking
+* Allow override only with manager approval
+* Track FIFO violations
+
+7. Rack Visualization
+   Create UI showing:
+
+* Rack
+* Level
+* Depth positions
+* Pallet IDs
+* FIFO order
+* Color indicators
+
+Color Codes:
+
+* Green = Empty
+* Red = Occupied
+* Yellow = Reserved
+* Blue = Moving
+
+8. Shuttle Simulation
+   Create shuttle movement animation:
+
+* Pallet moving forward
+* Shuttle traveling inside lane
+* Live rack updates
+
+9. Inventory Tracking
+   Track:
+
+* Exact pallet depth
+* Pallet aging
+* Batch
+* Expiry
+* SKU
+* Movement history
+
+10. APIs Required
+    Create APIs:
+
+* inbound pallet
+* dispatch pallet
+* shift pallets
+* get rack occupancy
+* get FIFO pallet
+* move shuttle
+
+11. Dispatch Logic
+    Dispatch process:
+    STEP 1:
+    Pick pallet at D01
+
+STEP 2:
+Mark pallet dispatched
+
+STEP 3:
+Auto shift remaining pallets
+
+STEP 4:
+Update all depth positions
+
+STEP 5:
+Save movement logs
+
+12. Frontend Requirements
+    Use:
+
+* React.js
+* Tailwind CSS
+* Real-time updates with Socket.io
+
+Create:
+
+* Rack heatmap
+* FIFO sequence view
+* Pallet timeline
+* Shuttle animation
+
+13. Backend Requirements
+    Use:
+
+* Node.js
+* Express.js
+* PostgreSQL
+
+Implement:
+
+* Transaction-safe updates
+* FIFO locking
+* Audit trail
+* Rollback protection
+
+14. Additional Smart Features
+    Add:
+
+* FEFO support
+* Empty lane detection
+* Auto slot allocation
+* Rack utilization %
+* Occupancy dashboard
+* Cold storage zone support
+
+15. Important Business Rule
+    This is NOT static pallet storage.
+
+This is dynamic shuttle storage:
+
+* Physical pallet positions change automatically,
+* Therefore WMS virtual positions must also auto-update automatically.
+
+The system should always maintain accurate real-time pallet depth tracking.
+
+16. Deliverables
+    Generate:
+
+* Database schema
+* Backend APIs
+* Frontend UI
+* FIFO engine
+* Shuttle simulation
+* Rack visualization
+* Sample seed data
+* Full working code
+
+Use production-ready architecture and modular coding standards.
+
+---

@@ -1,0 +1,268 @@
+UPDATE EXISTING WMS – SHUTTLE FIFO RACKING ZONE
+
+IMPORTANT:
+Do NOT modify existing warehouse logic for other zones.
+
+Existing WMS is already working properly for standard rack zones.
+
+I only want to implement special Shuttle FIFO Deep Lane Logic for ONE ZONE only.
+
+Zone Name:
+SHUTTLE_ZONE_A
+
+Only this zone should behave differently.
+
+RACK CONFIGURATION
+
+Warehouse Type:
+Cold Storage Shuttle Racking
+
+Rack Structure:
+
+7 Lanes
+5 Levels (G+4)
+50 Pallet Deep
+Single-side forklift entry
+Shuttle operated pallet movement
+
+Meaning:
+Each lane contains:
+5 Levels × 50 Deep pallet positions
+
+Depth Position:
+D01 = Front pallet
+D50 = Last pallet
+
+BUSINESS REQUIREMENT
+
+This is dynamic FIFO shuttle storage.
+
+When front pallet is dispatched:
+
+Remaining pallets automatically move forward physically through shuttle.
+WMS must also automatically update virtual positions.
+
+Example:
+
+Before Dispatch:
+D01 = P001
+D02 = P002
+D03 = P003
+...
+D50 = P050
+
+After dispatching P001:
+D01 = P002
+D02 = P003
+D03 = P004
+...
+D49 = P050
+D50 = EMPTY
+
+This shifting must happen automatically in:
+
+Database
+Rack visualization
+Inventory tracking
+FIFO sequence
+IMPORTANT RULE
+
+Apply this logic ONLY IF:
+
+zone.type = "SHUTTLE_FIFO"
+
+OR
+
+zone.code = "SHUTTLE_ZONE_A"
+
+All other zones should continue current normal logic unchanged.
+
+LOCATION STRUCTURE
+
+Location format:
+
+ZONE-LANE-LEVEL-DEPTH
+
+Example:
+SZ-A03-L02-D17
+
+Where:
+SZ = Shuttle Zone
+A03 = Lane
+L02 = Level
+D17 = Depth
+
+Depth Range:
+D01 to D50
+
+Levels:
+L00 = Ground
+L01 = Level 1
+L02 = Level 2
+L03 = Level 3
+L04 = Level 4
+
+REQUIRED FEATURES
+Dynamic FIFO Engine
+Implement:
+FIFO dispatch
+Automatic pallet shifting
+Auto depth reindexing
+Real-time updates
+Automatic Pallet Forward Movement
+After dispatch:
+FOR depth = 2 TO 50:
+move pallet(depth) -> depth-1
+
+Last depth becomes EMPTY.
+
+Deep Lane Management
+Each lane should maintain:
+Current occupancy
+FIFO order
+Empty depth count
+Last inbound position
+Database Changes
+
+Modify pallet_locations table:
+Add:
+
+lane_no
+level_no
+depth_position
+fifo_rank
+
+Create:
+shuttle_lane_movements
+
+Fields:
+
+id
+pallet_id
+lane_no
+level_no
+from_depth
+to_depth
+movement_type
+timestamp
+FIFO Validation
+Prevent:
+Dispatch from D02 if D01 occupied
+Wrong pallet picking
+Duplicate depth positions
+Gap between pallets
+
+Depth sequence must always remain continuous.
+
+Rack Visualization
+Create UI:
+Lane View:
+[D01][D02][D03].....[D50]
+
+Display:
+
+pallet ID
+SKU
+batch
+age
+status
+
+Color Codes:
+Green = Empty
+Red = Occupied
+Yellow = Reserved
+Blue = Moving
+
+Shuttle Simulation
+Animate:
+pallet shifting
+shuttle movement
+inbound movement
+outbound movement
+Smart Inbound Logic
+New inbound pallet should always go to:
+deepest empty position
+
+Example:
+If D01-D30 occupied
+Then new pallet goes to D31
+
+Smart Outbound Logic
+Outbound always from:
+D01
+
+Then auto-shift remaining pallets.
+
+APIs Required
+
+Update existing APIs:
+
+inbound pallet
+outbound pallet
+inventory lookup
+rack occupancy
+
+Add new APIs:
+
+shiftLanePallets()
+getFIFOSequence()
+getLaneOccupancy()
+simulateShuttleMovement()
+Inventory Tracking
+Track:
+exact depth position
+pallet age
+inbound time
+outbound time
+SKU
+batch
+expiry
+FIFO rank
+Performance Optimization
+Use:
+DB transactions
+row locking
+indexed queries
+websocket real-time updates
+Frontend Requirements
+Use:
+React.js
+Tailwind CSS
+Socket.io
+
+Create:
+
+Shuttle rack heatmap
+Deep lane visualization
+FIFO monitoring screen
+Live occupancy dashboard
+Reporting
+Generate:
+FIFO compliance report
+lane occupancy report
+pallet movement history
+aging report
+empty depth report
+IMPORTANT
+Do NOT rewrite whole WMS.
+
+Only extend system for:
+zone.type = SHUTTLE_FIFO
+
+Keep all existing logic unchanged for:
+
+normal racks
+floor storage
+other warehouse zones
+Deliverables
+Generate:
+Updated backend code
+Updated frontend components
+PostgreSQL migrations
+FIFO engine service
+Shuttle lane service
+Rack visualization
+Seed data
+API documentation
+
+Use production-ready clean architecture and modular coding standards.

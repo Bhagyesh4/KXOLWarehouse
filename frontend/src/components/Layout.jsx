@@ -9,6 +9,7 @@ import {
     BarChart3,
     LogOut,
     Warehouse,
+    Zap,
 } from "lucide-react";
 
 const NAV = [
@@ -17,6 +18,7 @@ const NAV = [
     { to: "/inbound", label: "Inbound", icon: ArrowDownToLine, testid: "nav-inbound" },
     { to: "/outbound", label: "Outbound", icon: ArrowUpFromLine, testid: "nav-outbound" },
     { to: "/storage", label: "Warehouse Storage", icon: Boxes, testid: "nav-storage" },
+    { to: "/shuttle", label: "Shuttle FIFO Zone", icon: Zap, testid: "nav-shuttle" },
     { to: "/reports", label: "Reports & Analytics", icon: BarChart3, testid: "nav-reports" },
 ];
 
