@@ -107,6 +107,7 @@ class InboundItemIn(BaseModel):
     batch_no: Optional[str] = None
     manufacture_date: Optional[str] = None
     expiry_date: Optional[str] = None
+    barcode: Optional[str] = None
 
 
 class InboundIn(BaseModel):
@@ -114,6 +115,10 @@ class InboundIn(BaseModel):
     supplier: str
     expected_date: str
     items: List[InboundItemIn]
+
+
+class PutawayScanIn(BaseModel):
+    barcode: str
 
 
 class ZoneProvisionIn(BaseModel):
@@ -591,12 +596,22 @@ async def list_inbound(status: Optional[str] = None, user: dict = Depends(get_us
 
 @api.post("/inbound")
 async def create_inbound(body: InboundIn, user: dict = Depends(require_role("admin", "manager"))):
+    items = []
+    for idx, item in enumerate(body.items):
+        item_dict = item.model_dump()
+        if not item_dict.get("barcode"):
+            safe_po = body.po_number.replace(" ", "-").upper()
+            item_dict["barcode"] = f"PLT-{safe_po}-P{idx + 1:02d}"
+        item_dict["putaway_confirmed"] = False
+        item_dict["confirmed_at"] = None
+        items.append(item_dict)
+
     doc = {
         "id": str(uuid.uuid4()),
         "po_number": body.po_number,
         "supplier": body.supplier,
         "expected_date": body.expected_date,
-        "items": [i.model_dump() for i in body.items],
+        "items": items,
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": user["name"],
@@ -606,16 +621,10 @@ async def create_inbound(body: InboundIn, user: dict = Depends(require_role("adm
     return doc
 
 
-@api.post("/inbound/{order_id}/receive")
-async def receive_inbound(order_id: str, user: dict = Depends(require_role("admin", "manager", "operator"))):
-    order = await db.inbound.find_one({"id": order_id}, {"_id": 0})
-    if not order:
-        raise HTTPException(404, "Inbound order not found")
-    if order["status"] == "completed":
-        raise HTTPException(400, "Already completed")
+async def _execute_receive(order: dict) -> None:
+    """Shared logic: post stock, movements, and mark order completed."""
     received_at = datetime.now(timezone.utc).isoformat()
     for item in order["items"]:
-        # update stock at location
         await db.stock.update_one(
             {"sku_id": item["sku_id"], "location_id": item["location_id"]},
             {"$inc": {"qty": item["qty"]},
@@ -641,8 +650,60 @@ async def receive_inbound(order_id: str, user: dict = Depends(require_role("admi
             "expiry_date": item.get("expiry_date"),
             "timestamp": received_at,
         })
-    await db.inbound.update_one({"id": order_id}, {"$set": {"status": "completed", "completed_at": received_at}})
+    await db.inbound.update_one(
+        {"id": order["id"]},
+        {"$set": {"status": "completed", "completed_at": received_at}},
+    )
+
+
+@api.post("/inbound/{order_id}/receive")
+async def receive_inbound(order_id: str, user: dict = Depends(require_role("admin", "manager", "operator"))):
+    order = await db.inbound.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Inbound order not found")
+    if order["status"] == "completed":
+        raise HTTPException(400, "Already completed")
+    await _execute_receive(order)
     return {"ok": True}
+
+
+@api.post("/inbound/{order_id}/putaway-scan")
+async def putaway_scan(order_id: str, body: PutawayScanIn, user: dict = Depends(require_role("admin", "manager", "operator"))):
+    """Scan a pallet barcode to confirm putaway. Auto-receives order when all pallets are confirmed."""
+    order = await db.inbound.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Inbound order not found")
+    if order["status"] == "completed":
+        raise HTTPException(400, "Order already completed")
+
+    items = order["items"]
+    matched_idx = next(
+        (i for i, it in enumerate(items) if it.get("barcode") == body.barcode.strip()),
+        None,
+    )
+    if matched_idx is None:
+        raise HTTPException(404, f"Barcode '{body.barcode}' not found in this order")
+    if items[matched_idx].get("putaway_confirmed"):
+        raise HTTPException(400, "Pallet already confirmed")
+
+    confirmed_at = datetime.now(timezone.utc).isoformat()
+    items[matched_idx]["putaway_confirmed"] = True
+    items[matched_idx]["confirmed_at"] = confirmed_at
+    items[matched_idx]["confirmed_by"] = user["name"]
+
+    await db.inbound.update_one({"id": order_id}, {"$set": {"items": items}})
+
+    all_confirmed = all(it.get("putaway_confirmed") for it in items)
+    if all_confirmed:
+        order["items"] = items
+        await _execute_receive(order)
+
+    return {
+        "ok": True,
+        "barcode": body.barcode,
+        "item_index": matched_idx,
+        "all_confirmed": all_confirmed,
+    }
 
 
 # ---------- Outbound ----------
