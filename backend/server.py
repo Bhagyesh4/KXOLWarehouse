@@ -132,6 +132,17 @@ class ZoneProvisionIn(BaseModel):
     rows: List[dict]  # [{row: "A", rack_type: "A", lanes: 13, depth: 4, levels: 4, weight_kg: 8000, lane_start: 26}]
 
 
+class ZoneCreateIn(BaseModel):
+    zone_code: str
+    zone_name: str
+    temperature: Optional[float] = 22.0
+
+
+class ZoneEditIn(BaseModel):
+    zone_name: str
+    temperature: Optional[float] = None
+
+
 class OutboundItemIn(BaseModel):
     sku_id: str
     qty: int
@@ -487,6 +498,68 @@ async def provision_zone(
         upsert=True,
     )
     return {"ok": True, "bins_created": len(locs)}
+
+
+@api.post("/storage/zones")
+async def create_zone(
+    body: ZoneCreateIn,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    """Create a new placeholder zone (ready to be provisioned)."""
+    code = body.zone_code.strip().upper()
+    if not code:
+        raise HTTPException(400, "Zone code required")
+    existing = await db.zones_meta.find_one({"zone": code})
+    if existing:
+        raise HTTPException(400, f"Zone {code} already exists")
+    await db.zones_meta.insert_one({
+        "zone": code,
+        "name": body.zone_name.strip() or code,
+        "temperature": body.temperature,
+        "placeholder": True,
+    })
+    return {"ok": True, "zone": code}
+
+
+@api.put("/storage/zones/{zone_code}")
+async def edit_zone(
+    zone_code: str,
+    body: ZoneEditIn,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    """Edit zone name and/or temperature."""
+    update: dict = {"name": body.zone_name.strip()}
+    if body.temperature is not None:
+        update["temperature"] = body.temperature
+    await db.zones_meta.update_one(
+        {"zone": zone_code},
+        {"$set": update},
+        upsert=True,
+    )
+    # Also update all bin documents so the zone_name stays consistent
+    bin_update: dict = {"zone_name": update["name"]}
+    if body.temperature is not None:
+        bin_update["temperature"] = body.temperature
+    await db.locations.update_many({"zone": zone_code}, {"$set": bin_update})
+    return {"ok": True}
+
+
+@api.delete("/storage/zones/{zone_code}")
+async def delete_zone(
+    zone_code: str,
+    user: dict = Depends(require_role("admin")),
+):
+    """Delete all bins for a zone and remove it from zones_meta entirely."""
+    # Safety: check for live stock
+    occupied = await db.locations.count_documents({"zone": zone_code, "occupied": {"$gt": 0}})
+    if occupied > 0:
+        raise HTTPException(
+            409,
+            f"Zone {zone_code} still has {occupied} occupied slot(s). Clear stock before deleting.",
+        )
+    deleted = await db.locations.delete_many({"zone": zone_code})
+    await db.zones_meta.delete_one({"zone": zone_code})
+    return {"ok": True, "bins_deleted": deleted.deleted_count}
 
 
 # ---------- FEFO ----------

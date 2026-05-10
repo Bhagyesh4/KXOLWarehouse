@@ -11,6 +11,10 @@ import {
     MoveRight,
     CheckCircle2,
     Tag,
+    Pencil,
+    Trash2,
+    Plus,
+    AlertTriangle,
 } from "lucide-react";
 import ZoneProvisionModal from "../components/ZoneProvisionModal";
 import { useAuth } from "../context/AuthContext";
@@ -26,8 +30,12 @@ export default function Storage() {
     const [filterType, setFilterType] = useState("ALL");
     const [openLane, setOpenLane] = useState(null);
     const [provisionZone, setProvisionZone] = useState(null);
+    const [addZoneModal, setAddZoneModal] = useState(false);
+    const [editZone, setEditZone] = useState(null);
+    const [deleteZone, setDeleteZone] = useState(null);
 
     const isAdmin = user?.role === "admin" || user?.role === "manager";
+    const isSuperAdmin = user?.role === "admin";
 
     const reloadZones = async () => {
         const z = await api.get("/storage/zones");
@@ -91,19 +99,29 @@ export default function Storage() {
                         Warehouse Storage
                     </h1>
                 </div>
-                {activeZoneInfo && !activeZoneInfo.placeholder && (
-                    <div className="flex items-center gap-3 border border-cyan-500/30 bg-cyan-500/5 px-4 py-2">
-                        <Snowflake className="text-cyan-400" size={18} />
-                        <div>
-                            <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">
-                                Temperature
-                            </div>
-                            <div className="font-mono text-cyan-400 text-lg font-semibold">
-                                {activeZoneInfo.temperature}°C
+                <div className="flex items-center gap-3">
+                    {activeZoneInfo && !activeZoneInfo.placeholder && (
+                        <div className="flex items-center gap-3 border border-cyan-500/30 bg-cyan-500/5 px-4 py-2">
+                            <Snowflake className="text-cyan-400" size={18} />
+                            <div>
+                                <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">
+                                    Temperature
+                                </div>
+                                <div className="font-mono text-cyan-400 text-lg font-semibold">
+                                    {activeZoneInfo.temperature}°C
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                    {isAdmin && (
+                        <button
+                            onClick={() => setAddZoneModal(true)}
+                            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 text-xs font-bold uppercase tracking-wider"
+                        >
+                            <Plus size={14} /> Add Zone
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Flow Rack System Panel */}
@@ -126,34 +144,54 @@ export default function Storage() {
                     const pct = z.capacity ? Math.round((z.occupied / z.capacity) * 100) : 0;
                     const active = activeZone === z.zone;
                     return (
-                        <button
+                        <div
                             key={z.zone}
-                            onClick={() => setActiveZone(z.zone)}
-                            data-testid={`zone-${z.zone}`}
-                            className={`text-left p-4 border transition-colors ${
+                            className={`relative text-left p-4 border transition-colors cursor-pointer ${
                                 active
                                     ? "border-amber-500 bg-amber-500/5"
                                     : "border-white/10 bg-[#181a20] hover:border-amber-500/40"
-                            } ${z.placeholder ? "opacity-60" : ""}`}
+                            } ${z.placeholder ? "opacity-70" : ""}`}
+                            onClick={() => setActiveZone(z.zone)}
+                            data-testid={`zone-${z.zone}`}
                         >
                             <div className="flex items-start justify-between">
-                                <div>
+                                <div className="min-w-0 flex-1">
                                     <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase">
                                         {z.zone}
                                     </div>
-                                    <div className="text-xs text-gray-400 mt-0.5">{z.name}</div>
+                                    <div className="text-xs text-gray-400 mt-0.5 truncate">{z.name}</div>
                                 </div>
-                                {z.temperature !== null && z.temperature !== undefined && (
-                                    <div
-                                        className={`font-mono text-[10px] px-1.5 py-0.5 ${
-                                            z.temperature < 0
-                                                ? "bg-cyan-500/10 text-cyan-400"
-                                                : "bg-amber-500/10 text-amber-400"
-                                        }`}
-                                    >
-                                        {z.temperature}°C
-                                    </div>
-                                )}
+                                <div className="flex items-center gap-1 ml-2 shrink-0">
+                                    {z.temperature !== null && z.temperature !== undefined && (
+                                        <div
+                                            className={`font-mono text-[10px] px-1.5 py-0.5 ${
+                                                z.temperature < 0
+                                                    ? "bg-cyan-500/10 text-cyan-400"
+                                                    : "bg-amber-500/10 text-amber-400"
+                                            }`}
+                                        >
+                                            {z.temperature}°C
+                                        </div>
+                                    )}
+                                    {isAdmin && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setEditZone(z); }}
+                                            title="Edit zone"
+                                            className="p-1 text-gray-600 hover:text-amber-400 transition-colors"
+                                        >
+                                            <Pencil size={12} />
+                                        </button>
+                                    )}
+                                    {isSuperAdmin && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setDeleteZone(z); }}
+                                            title="Delete zone"
+                                            className="p-1 text-gray-600 hover:text-red-400 transition-colors"
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             <div className="font-mono text-2xl font-semibold mt-3">
                                 {z.placeholder ? "—" : `${pct}%`}
@@ -177,7 +215,7 @@ export default function Storage() {
                                     />
                                 </div>
                             )}
-                        </button>
+                        </div>
                     );
                 })}
             </div>
@@ -319,6 +357,267 @@ export default function Storage() {
                     }}
                 />
             )}
+
+            {addZoneModal && (
+                <AddZoneModal
+                    onClose={() => setAddZoneModal(false)}
+                    onCreated={async (zone) => {
+                        await reloadZones();
+                        setAddZoneModal(false);
+                        setProvisionZone(zone);
+                    }}
+                />
+            )}
+
+            {editZone && (
+                <EditZoneModal
+                    zone={editZone}
+                    onClose={() => setEditZone(null)}
+                    onSaved={async () => {
+                        await reloadZones();
+                        await reloadFlowLanes();
+                        setEditZone(null);
+                    }}
+                />
+            )}
+
+            {deleteZone && (
+                <DeleteZoneConfirm
+                    zone={deleteZone}
+                    onClose={() => setDeleteZone(null)}
+                    onDeleted={async () => {
+                        await reloadZones();
+                        await reloadFlowLanes();
+                        setDeleteZone(null);
+                        setZones((prev) => {
+                            const remaining = prev.filter((z) => z.zone !== deleteZone.zone);
+                            setActiveZone(remaining[0]?.zone || null);
+                            return remaining;
+                        });
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+/* ─── Add Zone Modal ─────────────────────────────────────── */
+function AddZoneModal({ onClose, onCreated }) {
+    const [form, setForm] = useState({ zone_code: "", zone_name: "", temperature: 22 });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+
+    const submit = async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setErr("");
+        try {
+            const code = form.zone_code.trim().toUpperCase();
+            await api.post("/storage/zones", {
+                zone_code: code,
+                zone_name: form.zone_name.trim() || code,
+                temperature: parseFloat(form.temperature) || 22,
+            });
+            onCreated({ zone: code, name: form.zone_name.trim() || code, temperature: parseFloat(form.temperature) || 22, placeholder: true });
+        } catch (er) {
+            setErr(er.response?.data?.detail || er.message);
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-[#181a20] border border-white/10 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-white/10">
+                    <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">// NEW ZONE</div>
+                        <h3 className="text-lg font-bold mt-1">Add Storage Zone</h3>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+                </div>
+                <form onSubmit={submit} className="p-5 space-y-4">
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Zone Code</label>
+                        <input
+                            value={form.zone_code}
+                            onChange={(e) => setForm({ ...form, zone_code: e.target.value })}
+                            placeholder="e.g. AMBIENT-2"
+                            required
+                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none uppercase"
+                        />
+                        <div className="text-[10px] text-gray-600 mt-1">Short identifier — used in all bin codes</div>
+                    </div>
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Zone Name</label>
+                        <input
+                            value={form.zone_name}
+                            onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+                            placeholder="e.g. Ambient Overflow"
+                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Temperature (°C)</label>
+                        <input
+                            type="number"
+                            value={form.temperature}
+                            onChange={(e) => setForm({ ...form, temperature: e.target.value })}
+                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
+                        />
+                    </div>
+                    {err && <div className="text-xs text-red-400 font-mono border border-red-500/30 bg-red-500/10 p-3">{err}</div>}
+                    <div className="flex gap-2 pt-1">
+                        <button type="button" onClick={onClose} className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white">
+                            Cancel
+                        </button>
+                        <button type="submit" disabled={busy} className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-60">
+                            {busy ? "Creating…" : "Create & Configure →"}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Edit Zone Modal ────────────────────────────────────── */
+function EditZoneModal({ zone, onClose, onSaved }) {
+    const [form, setForm] = useState({ zone_name: zone.name, temperature: zone.temperature ?? 22 });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+
+    const submit = async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setErr("");
+        try {
+            await api.put(`/storage/zones/${zone.zone}`, {
+                zone_name: form.zone_name.trim(),
+                temperature: parseFloat(form.temperature),
+            });
+            onSaved();
+        } catch (er) {
+            setErr(er.response?.data?.detail || er.message);
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-[#181a20] border border-white/10 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-white/10">
+                    <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">// EDIT ZONE</div>
+                        <h3 className="text-lg font-bold mt-1">Edit {zone.zone}</h3>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+                </div>
+                <form onSubmit={submit} className="p-5 space-y-4">
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Zone Code</label>
+                        <input value={zone.zone} disabled className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm opacity-50" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Zone Name</label>
+                        <input
+                            value={form.zone_name}
+                            onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+                            required
+                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Temperature (°C)</label>
+                        <input
+                            type="number"
+                            value={form.temperature}
+                            onChange={(e) => setForm({ ...form, temperature: e.target.value })}
+                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
+                        />
+                        {!zone.placeholder && (
+                            <div className="text-[10px] text-gray-600 mt-1">This will update all bin records in this zone.</div>
+                        )}
+                    </div>
+                    {err && <div className="text-xs text-red-400 font-mono border border-red-500/30 bg-red-500/10 p-3">{err}</div>}
+                    <div className="flex gap-2 pt-1">
+                        <button type="button" onClick={onClose} className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white">
+                            Cancel
+                        </button>
+                        <button type="submit" disabled={busy} className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-60">
+                            {busy ? "Saving…" : "Save Changes"}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Delete Zone Confirm ────────────────────────────────── */
+function DeleteZoneConfirm({ zone, onClose, onDeleted }) {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const [confirmed, setConfirmed] = useState("");
+
+    const doDelete = async () => {
+        setBusy(true);
+        setErr("");
+        try {
+            await api.delete(`/storage/zones/${zone.zone}`);
+            onDeleted();
+        } catch (er) {
+            setErr(er.response?.data?.detail || er.message);
+            setBusy(false);
+        }
+    };
+
+    const canDelete = confirmed.trim().toUpperCase() === zone.zone;
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-[#181a20] border border-red-500/30 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-red-500/20">
+                    <div className="flex items-center gap-3">
+                        <AlertTriangle size={20} className="text-red-400" />
+                        <div>
+                            <div className="font-mono text-[10px] uppercase tracking-widest text-red-400">// DANGER ZONE</div>
+                            <h3 className="text-lg font-bold mt-1">Delete {zone.zone}</h3>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+                </div>
+                <div className="p-5 space-y-4">
+                    <div className="bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-300 leading-relaxed">
+                        This will permanently delete <strong className="text-white">{zone.name}</strong> and all{" "}
+                        <strong className="text-white">{zone.bins || 0} bin records</strong> in this zone.
+                        Stock must be cleared before deletion. This cannot be undone.
+                    </div>
+                    <div>
+                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">
+                            Type <span className="text-white font-mono">{zone.zone}</span> to confirm
+                        </label>
+                        <input
+                            value={confirmed}
+                            onChange={(e) => setConfirmed(e.target.value)}
+                            placeholder={zone.zone}
+                            className="w-full bg-[#090a0c] border border-red-500/30 px-3 py-2 font-mono text-sm focus:border-red-500 focus:outline-none uppercase"
+                        />
+                    </div>
+                    {err && <div className="text-xs text-red-400 font-mono border border-red-500/30 bg-red-500/10 p-3">{err}</div>}
+                    <div className="flex gap-2">
+                        <button onClick={onClose} className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white">
+                            Cancel
+                        </button>
+                        <button
+                            onClick={doDelete}
+                            disabled={!canDelete || busy}
+                            className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-40"
+                        >
+                            {busy ? "Deleting…" : "Delete Zone"}
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
