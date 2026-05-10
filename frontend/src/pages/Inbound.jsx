@@ -9,6 +9,7 @@ import {
     Printer,
     ClipboardList,
     ScanBarcode,
+    Tag,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import PutawayModal from "../components/PutawayModal";
@@ -224,14 +225,24 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
 
                             {canReceive && (
                                 <div className="space-y-2">
-                                    {/* Putaway Task button — for all roles */}
+                                    {/* Print Labels + Putaway Task row */}
                                     {!allConfirmed && (
-                                        <button
-                                            onClick={() => onPutaway && onPutaway(o)}
-                                            className="w-full flex items-center justify-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 text-amber-400 py-2 text-xs font-bold uppercase tracking-wider transition-colors"
-                                        >
-                                            <ClipboardList size={13} /> Putaway Task
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <Link
+                                                to={`/print/labels/${o.id}`}
+                                                target="_blank"
+                                                className="flex items-center justify-center gap-1.5 border border-amber-500/30 hover:border-amber-500/60 text-amber-400 hover:text-amber-300 py-2 px-3 text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap"
+                                                title="Print pallet barcode labels"
+                                            >
+                                                <Tag size={12} /> Labels
+                                            </Link>
+                                            <button
+                                                onClick={() => onPutaway && onPutaway(o)}
+                                                className="flex-1 flex items-center justify-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 text-amber-400 py-2 text-xs font-bold uppercase tracking-wider transition-colors"
+                                            >
+                                                <ClipboardList size={13} /> Putaway Task
+                                            </button>
+                                        </div>
                                     )}
 
                                     {/* Admin/Manager: direct receive bypass */}

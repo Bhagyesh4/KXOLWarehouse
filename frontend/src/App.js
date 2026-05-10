@@ -12,6 +12,7 @@ import Storage from "./pages/Storage";
 import Reports from "./pages/Reports";
 import PrintGRN from "./pages/PrintGRN";
 import PrintPickList from "./pages/PrintPickList";
+import PrintPalletLabels from "./pages/PrintPalletLabels";
 import { Toaster } from "sonner";
 
 export default function App() {
@@ -35,6 +36,14 @@ export default function App() {
                         element={
                             <ProtectedRoute>
                                 <PrintPickList />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/print/labels/:id"
+                        element={
+                            <ProtectedRoute>
+                                <PrintPalletLabels />
                             </ProtectedRoute>
                         }
                     />

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import Scanner from "./Scanner";
 import {
@@ -9,6 +10,7 @@ import {
     Package,
     ScanBarcode,
     ClipboardCheck,
+    Printer,
 } from "lucide-react";
 
 export default function PutawayModal({ order, skuMap, locMap, onClose, onComplete }) {
@@ -82,7 +84,7 @@ export default function PutawayModal({ order, skuMap, locMap, onClose, onComplet
                         <h3 className="text-lg font-bold mt-0.5">{order.po_number}</h3>
                         <div className="text-xs text-gray-500">{order.supplier}</div>
                     </div>
-                    <div className="flex items-center gap-5">
+                    <div className="flex items-center gap-4">
                         <div className="text-right">
                             <div className="font-mono text-3xl font-bold leading-none">
                                 <span className="text-amber-400">{confirmedCount}</span>
@@ -92,6 +94,15 @@ export default function PutawayModal({ order, skuMap, locMap, onClose, onComplet
                                 Pallets Placed
                             </div>
                         </div>
+                        <Link
+                            to={`/print/labels/${order.id}`}
+                            target="_blank"
+                            title="Print pallet labels"
+                            className="flex flex-col items-center gap-0.5 text-amber-400 hover:text-amber-300 px-2 py-1 border border-amber-500/30 hover:border-amber-500/60 transition-colors"
+                        >
+                            <Printer size={16} />
+                            <span className="font-mono text-[9px] uppercase tracking-wider">Labels</span>
+                        </Link>
                         <button onClick={onClose} className="text-gray-400 hover:text-white">
                             <X size={18} />
                         </button>
