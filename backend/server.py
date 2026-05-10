@@ -121,6 +121,10 @@ class PutawayScanIn(BaseModel):
     barcode: str
 
 
+class FlowLaneAssignIn(BaseModel):
+    sku_id: Optional[str] = None
+
+
 class ZoneProvisionIn(BaseModel):
     zone_code: str
     zone_name: str
@@ -556,7 +560,6 @@ async def lanes(zone: Optional[str] = None, user: dict = Depends(get_user)):
     """Return racks/lanes for drive-in style visualization."""
     flt = {"zone": zone} if zone else {}
     locs = await db.locations.find(flt, {"_id": 0}).to_list(5000)
-    # group by row + lane
     lanes_map: dict = {}
     for l in locs:
         key = (l.get("row_label", "?"), l.get("lane_number", 0))
@@ -567,6 +570,7 @@ async def lanes(zone: Optional[str] = None, user: dict = Depends(get_user)):
             "levels": l.get("levels", 4),
             "depth": l.get("depth", 0),
             "weight_capacity_kg": l.get("weight_capacity_kg", 0),
+            "sku_assignment": l.get("sku_assignment"),
             "bins": [],
         })
         lane["bins"].append({
@@ -585,6 +589,60 @@ async def lanes(zone: Optional[str] = None, user: dict = Depends(get_user)):
         out.append(lane)
     out.sort(key=lambda x: (x["row"], x["lane_number"]))
     return out
+
+
+@api.get("/storage/flow-lanes")
+async def flow_lanes_summary(user: dict = Depends(get_user)):
+    """Return all flow_rack lanes across all zones with SKU assignment and fill depth."""
+    locs = await db.locations.find({"rack_type": "flow_rack"}, {"_id": 0}).to_list(5000)
+    lanes_map: dict = {}
+    for l in locs:
+        key = (l.get("zone"), l.get("row_label", "?"), l.get("lane_number", 0))
+        lane = lanes_map.setdefault(key, {
+            "zone": l.get("zone"),
+            "zone_name": l.get("zone_name", l.get("zone")),
+            "row": l.get("row_label", "?"),
+            "lane_number": l.get("lane_number", 0),
+            "depth": l.get("depth", 0),
+            "levels": l.get("levels", 1),
+            "weight_capacity_kg": l.get("weight_capacity_kg", 0),
+            "sku_assignment": l.get("sku_assignment"),
+            "total_slots": 0,
+            "filled_slots": 0,
+        })
+        lane["total_slots"] += 1
+        if l.get("occupied", 0) > 0:
+            lane["filled_slots"] += 1
+    out = list(lanes_map.values())
+    for lane in out:
+        if lane.get("sku_assignment"):
+            sku = await db.skus.find_one(
+                {"id": lane["sku_assignment"]},
+                {"_id": 0, "sku_code": 1, "name": 1, "unit": 1},
+            )
+            lane["sku"] = sku
+        else:
+            lane["sku"] = None
+    out.sort(key=lambda x: (x["zone"], x["row"], x["lane_number"]))
+    return out
+
+
+@api.patch("/storage/lanes/{zone}/{row}/{lane_number}/assign-sku")
+async def assign_flow_lane_sku(
+    zone: str,
+    row: str,
+    lane_number: int,
+    body: FlowLaneAssignIn,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    """Assign or clear the dedicated SKU for a flow rack lane."""
+    result = await db.locations.update_many(
+        {"zone": zone, "row_label": row, "lane_number": lane_number, "rack_type": "flow_rack"},
+        {"$set": {"sku_assignment": body.sku_id}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Flow rack lane not found")
+    return {"ok": True, "updated": result.modified_count}
 
 
 # ---------- Inbound ----------

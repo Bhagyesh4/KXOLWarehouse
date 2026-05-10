@@ -203,11 +203,9 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
                                         className="grid grid-cols-12 gap-1.5 items-end bg-[#0d0e12] border border-white/5 p-2"
                                     >
                                         <RowField label="Row" value={r.row} onChange={(v) => updateRow(idx, "row", v)} cols={1} />
-                                        <RowField
-                                            label="Type"
+                                        <RackTypeSelect
                                             value={r.rack_type}
                                             onChange={(v) => updateRow(idx, "rack_type", v)}
-                                            cols={1}
                                         />
                                         <RowField
                                             label="Lanes"
@@ -318,6 +316,33 @@ function RowField({ label, value, onChange, type = "text", cols = 2 }) {
                 onChange={(e) => onChange(e.target.value)}
                 className="w-full bg-[#090a0c] border border-white/10 px-2 py-1.5 font-mono text-xs focus:border-amber-500 focus:outline-none"
             />
+        </div>
+    );
+}
+
+function RackTypeSelect({ value, onChange }) {
+    const options = [
+        { value: "A", label: "A — Standard" },
+        { value: "B", label: "B — Heavy Duty" },
+        { value: "C", label: "C — High Bay" },
+        { value: "flow_rack", label: "Flow Rack (FIFO)" },
+    ];
+    return (
+        <div className="col-span-2">
+            <label className="text-[9px] uppercase tracking-widest text-gray-500 font-semibold block">
+                Type
+            </label>
+            <select
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                className="w-full bg-[#090a0c] border border-white/10 px-2 py-1.5 font-mono text-xs focus:border-amber-500 focus:outline-none"
+            >
+                {options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                        {o.label}
+                    </option>
+                ))}
+            </select>
         </div>
     );
 }

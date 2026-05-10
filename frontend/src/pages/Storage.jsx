@@ -1,26 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { Snowflake, Layers, Package2, ArrowRight, X, Sparkles } from "lucide-react";
+import {
+    Snowflake,
+    Layers,
+    Package2,
+    ArrowRight,
+    X,
+    Sparkles,
+    ArrowLeftRight,
+    MoveRight,
+    CheckCircle2,
+    Tag,
+} from "lucide-react";
 import ZoneProvisionModal from "../components/ZoneProvisionModal";
+import { useAuth } from "../context/AuthContext";
 
 export default function Storage() {
+    const { user } = useAuth();
     const [zones, setZones] = useState([]);
     const [activeZone, setActiveZone] = useState(null);
     const [lanes, setLanes] = useState([]);
+    const [flowLanes, setFlowLanes] = useState([]);
+    const [skus, setSkus] = useState([]);
     const [filterRow, setFilterRow] = useState("ALL");
     const [filterType, setFilterType] = useState("ALL");
     const [openLane, setOpenLane] = useState(null);
     const [provisionZone, setProvisionZone] = useState(null);
+
+    const isAdmin = user?.role === "admin" || user?.role === "manager";
 
     const reloadZones = async () => {
         const z = await api.get("/storage/zones");
         setZones(z.data);
     };
 
+    const reloadFlowLanes = async () => {
+        const r = await api.get("/storage/flow-lanes");
+        setFlowLanes(r.data);
+    };
+
     useEffect(() => {
         (async () => {
-            const z = await api.get("/storage/zones");
+            const [z, fl, sk] = await Promise.all([
+                api.get("/storage/zones"),
+                api.get("/storage/flow-lanes"),
+                api.get("/inventory/skus"),
+            ]);
             setZones(z.data);
+            setFlowLanes(fl.data);
+            setSkus(sk.data);
             const cold1 = z.data.find((x) => x.zone === "COLD-1");
             setActiveZone(cold1?.zone || z.data[0]?.zone);
         })();
@@ -50,12 +78,14 @@ export default function Storage() {
 
     const activeZoneInfo = zones.find((z) => z.zone === activeZone);
 
+    const rackTypes = [...new Set(lanes.map((l) => l.rack_type).filter(Boolean))];
+
     return (
         <div className="space-y-5">
             <div className="flex items-end justify-between flex-wrap gap-3">
                 <div>
                     <div className="font-mono text-[10px] tracking-[0.3em] text-amber-400 uppercase">
-                        // STORAGE // DRIVE-IN RACKING
+                        // STORAGE // RACK SYSTEMS
                     </div>
                     <h1 className="text-3xl font-bold tracking-tight mt-1">
                         Warehouse Storage
@@ -75,6 +105,20 @@ export default function Storage() {
                     </div>
                 )}
             </div>
+
+            {/* Flow Rack System Panel */}
+            {flowLanes.length > 0 && (
+                <FlowRackPanel
+                    flowLanes={flowLanes}
+                    skus={skus}
+                    isAdmin={isAdmin}
+                    onAssigned={reloadFlowLanes}
+                    onLaneClick={(lane) => {
+                        setActiveZone(lane.zone);
+                        setOpenLane({ ...lane, rack_type: "flow_rack" });
+                    }}
+                />
+            )}
 
             {/* Zone selector */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -185,23 +229,30 @@ export default function Storage() {
                         <div className="ml-4 flex items-center gap-1 text-[10px] tracking-widest text-gray-500 uppercase font-semibold">
                             Type:
                         </div>
-                        {["ALL", "A", "B", "C"].map((t) => (
+                        <FilterChip
+                            active={filterType === "ALL"}
+                            onClick={() => setFilterType("ALL")}
+                            label="ALL"
+                            testid="filter-type-ALL"
+                        />
+                        {rackTypes.map((t) => (
                             <FilterChip
                                 key={t}
                                 active={filterType === t}
                                 onClick={() => setFilterType(t)}
-                                label={t === "ALL" ? "ALL" : `Type ${t}`}
+                                label={t === "flow_rack" ? "FLOW RACK" : `Type ${t}`}
                                 testid={`filter-type-${t}`}
+                                highlight={t === "flow_rack"}
                             />
                         ))}
                     </div>
 
-                    {/* Drive-In Rack Visualization */}
+                    {/* Lane Layout */}
                     <div className="bg-[#181a20] border border-white/10 p-5">
                         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                             <div>
                                 <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase">
-                                    // DRIVE-IN LANES // LIFO // 4 LEVELS DEEP
+                                    // RACK LAYOUT // {activeZone}
                                 </div>
                                 <h3 className="font-semibold mt-1">Lane Layout</h3>
                             </div>
@@ -221,7 +272,7 @@ export default function Storage() {
                                             <div>
                                                 <div className="font-mono text-sm font-semibold">ROW {row}</div>
                                                 <div className="font-mono text-[10px] text-gray-500 uppercase">
-                                                    {rowLanes.length} lanes · Type {rowLanes[0]?.rack_type} · {rowLanes[0]?.weight_capacity_kg.toLocaleString()}kg/lane
+                                                    {rowLanes.length} lanes · {[...new Set(rowLanes.map(l => l.rack_type))].join(", ")} · {rowLanes[0]?.weight_capacity_kg.toLocaleString()}kg/lane
                                                 </div>
                                             </div>
                                         </div>
@@ -245,7 +296,14 @@ export default function Storage() {
             {openLane && (
                 <LaneDrawer
                     lane={openLane}
+                    skus={skus}
+                    isAdmin={isAdmin}
+                    activeZone={activeZone}
                     onClose={() => setOpenLane(null)}
+                    onAssigned={() => {
+                        reloadFlowLanes();
+                        api.get(`/storage/lanes?zone=${activeZone}`).then(r => setLanes(r.data));
+                    }}
                 />
             )}
 
@@ -255,6 +313,7 @@ export default function Storage() {
                     onClose={() => setProvisionZone(null)}
                     onSaved={async () => {
                         await reloadZones();
+                        await reloadFlowLanes();
                         setActiveZone(provisionZone.zone);
                         setProvisionZone(null);
                     }}
@@ -264,6 +323,200 @@ export default function Storage() {
     );
 }
 
+/* ─── Flow Rack Panel ─────────────────────────────────────── */
+function FlowRackPanel({ flowLanes, skus, isAdmin, onAssigned, onLaneClick }) {
+    return (
+        <div className="bg-[#181a20] border border-amber-500/30">
+            <div className="px-5 py-4 border-b border-amber-500/20 flex items-center justify-between flex-wrap gap-3">
+                <div>
+                    <div className="font-mono text-[10px] tracking-[0.25em] text-amber-400 uppercase">
+                        // GRAVITY FLOW RACK // AUTO FIFO
+                    </div>
+                    <h3 className="font-semibold mt-1 flex items-center gap-2">
+                        <ArrowLeftRight size={16} className="text-amber-400" />
+                        Live Storage Lanes
+                    </h3>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 border border-white/10 px-3 py-1.5">
+                    <span className="text-emerald-400">LOAD REAR →</span>
+                    <span className="text-gray-600">pallets slide forward</span>
+                    <span className="text-amber-400">→ EXIT FRONT</span>
+                </div>
+            </div>
+
+            <div className="p-4">
+                <div className="text-[10px] font-mono text-gray-500 mb-3 flex items-center gap-1.5 uppercase tracking-widest">
+                    <CheckCircle2 size={10} className="text-emerald-400" />
+                    FIFO enforced mechanically — pallets automatically advance to exit
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {flowLanes.map((lane, i) => (
+                        <FlowLaneCard
+                            key={i}
+                            lane={lane}
+                            skus={skus}
+                            isAdmin={isAdmin}
+                            onAssigned={onAssigned}
+                            onClick={() => onLaneClick(lane)}
+                        />
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function FlowLaneCard({ lane, skus, isAdmin, onAssigned, onClick }) {
+    const [assigning, setAssigning] = useState(false);
+    const [selectedSku, setSelectedSku] = useState(lane.sku_assignment || "");
+    const [busy, setBusy] = useState(false);
+
+    const pct = lane.total_slots ? Math.round((lane.filled_slots / lane.total_slots) * 100) : 0;
+
+    const handleAssign = async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        try {
+            await api.patch(
+                `/storage/lanes/${lane.zone}/${lane.row}/${lane.lane_number}/assign-sku`,
+                { sku_id: selectedSku || null }
+            );
+            onAssigned();
+            setAssigning(false);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="border border-amber-500/20 bg-[#0d0e12] p-4 space-y-3">
+            {/* Lane header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="font-mono text-[10px] text-gray-500 uppercase">Lane</div>
+                    <div className="font-mono text-amber-400 font-bold">
+                        {lane.zone}-{lane.row}-L{String(lane.lane_number).padStart(2, "0")}
+                    </div>
+                </div>
+                <button
+                    onClick={onClick}
+                    className="font-mono text-[10px] text-gray-500 hover:text-amber-400 flex items-center gap-1 uppercase"
+                >
+                    Inspect <ArrowRight size={11} />
+                </button>
+            </div>
+
+            {/* Flow conveyor diagram */}
+            <FlowConveyor filled={lane.filled_slots} total={lane.total_slots / (lane.levels || 1)} levels={lane.levels} />
+
+            {/* SKU assignment */}
+            <div>
+                {!assigning ? (
+                    <div className="flex items-center justify-between">
+                        <div>
+                            {lane.sku ? (
+                                <div>
+                                    <div className="font-mono text-[9px] text-gray-500 uppercase mb-0.5">Dedicated SKU</div>
+                                    <div className="font-mono text-xs text-amber-400 font-semibold">
+                                        {lane.sku.sku_code}
+                                    </div>
+                                    <div className="text-[10px] text-gray-400">{lane.sku.name}</div>
+                                </div>
+                            ) : (
+                                <div className="font-mono text-[10px] text-gray-600 italic">No SKU assigned</div>
+                            )}
+                        </div>
+                        {isAdmin && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setAssigning(true); }}
+                                className="text-[10px] font-mono text-gray-500 hover:text-amber-400 border border-white/10 hover:border-amber-500/40 px-2 py-1 uppercase tracking-wide flex items-center gap-1"
+                            >
+                                <Tag size={10} /> Assign
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                        <select
+                            value={selectedSku}
+                            onChange={(e) => setSelectedSku(e.target.value)}
+                            className="w-full bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono focus:border-amber-500 focus:outline-none"
+                        >
+                            <option value="">— No assignment (mixed SKU) —</option>
+                            {skus.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                    {s.sku_code} · {s.name}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleAssign}
+                                disabled={busy}
+                                className="flex-1 bg-amber-500 hover:bg-amber-600 text-black text-[10px] font-bold uppercase tracking-wider py-1.5 disabled:opacity-60"
+                            >
+                                {busy ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                                onClick={() => { setAssigning(false); setSelectedSku(lane.sku_assignment || ""); }}
+                                className="px-3 border border-white/10 text-gray-400 hover:text-white text-[10px] py-1.5"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Stats */}
+            <div className="flex justify-between font-mono text-[10px]">
+                <span className="text-gray-500">{lane.filled_slots}/{lane.total_slots} pallets</span>
+                <span className={pct < 40 ? "text-emerald-400" : pct < 80 ? "text-amber-400" : "text-red-400"}>
+                    {pct}% full
+                </span>
+            </div>
+        </div>
+    );
+}
+
+function FlowConveyor({ filled, total, levels }) {
+    const depth = Math.round(total) || 4;
+    const filledPerLevel = Math.round(filled / Math.max(levels, 1));
+    return (
+        <div>
+            <div className="flex items-center gap-1 mb-1">
+                <div className="font-mono text-[9px] text-gray-600 w-14 text-right shrink-0">LOAD →</div>
+                <div className="flex-1 flex gap-0.5">
+                    {[...Array(depth)].map((_, i) => {
+                        const pos = depth - i;
+                        const isLoaded = pos <= filledPerLevel;
+                        return (
+                            <div
+                                key={i}
+                                title={`Position P${String(pos).padStart(2, "0")} (${pos === 1 ? "EXIT/PICK" : pos === depth ? "LOAD" : "transit"})`}
+                                className={`flex-1 h-5 border ${
+                                    isLoaded
+                                        ? "bg-emerald-500/70 border-emerald-500"
+                                        : "bg-white/5 border-white/10"
+                                } ${pos === 1 ? "border-l-amber-500 border-l-2" : ""}`}
+                            />
+                        );
+                    })}
+                </div>
+                <div className="font-mono text-[9px] text-amber-400 w-10 shrink-0">→ EXIT</div>
+            </div>
+            <div className="flex items-center gap-1">
+                <div className="w-14 shrink-0" />
+                <div className="flex-1 flex justify-between font-mono text-[8px] text-gray-600">
+                    <span>← P{String(depth).padStart(2, "0")} (rear)</span>
+                    <span>P01 (front) →</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Shared components ──────────────────────────────────── */
 function Stat({ label, value, color = "text-white", mono }) {
     return (
         <div className="bg-[#181a20] border border-white/10 p-4">
@@ -273,15 +526,19 @@ function Stat({ label, value, color = "text-white", mono }) {
     );
 }
 
-function FilterChip({ active, onClick, label, testid }) {
+function FilterChip({ active, onClick, label, testid, highlight }) {
     return (
         <button
             onClick={onClick}
             data-testid={testid}
             className={`px-3 py-1 text-xs font-mono uppercase tracking-wider border transition-colors ${
                 active
-                    ? "border-amber-500 bg-amber-500/10 text-amber-400"
-                    : "border-white/10 text-gray-400 hover:border-white/30"
+                    ? highlight
+                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+                        : "border-amber-500 bg-amber-500/10 text-amber-400"
+                    : highlight
+                      ? "border-emerald-500/20 text-emerald-600 hover:border-emerald-500/50"
+                      : "border-white/10 text-gray-400 hover:border-white/30"
             }`}
         >
             {label}
@@ -290,7 +547,72 @@ function FilterChip({ active, onClick, label, testid }) {
 }
 
 function LaneCard({ lane, onClick }) {
+    const isFlow = lane.rack_type === "flow_rack";
     const pct = lane.total_slots ? Math.round((lane.filled_slots / lane.total_slots) * 100) : 0;
+
+    if (isFlow) {
+        return (
+            <button
+                onClick={onClick}
+                data-testid={`lane-${lane.row}-${lane.lane_number}`}
+                className="text-left bg-[#0d0e12] border border-amber-500/20 hover:border-amber-500/60 transition-colors p-3 group"
+            >
+                <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">Lane</div>
+                        <div className="font-mono text-amber-400 font-bold">
+                            L{String(lane.lane_number).padStart(2, "0")}
+                        </div>
+                        <span className="font-mono text-[9px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            FLOW RACK
+                        </span>
+                    </div>
+                    <ArrowRight size={14} className="text-gray-600 group-hover:text-amber-400 transition-colors" />
+                </div>
+
+                {/* Flow direction visual */}
+                <div className="space-y-0.5 mb-2">
+                    {[...Array(Math.min(lane.levels, 3))].map((_, idx) => {
+                        const level = lane.levels - idx;
+                        const slots = lane.bins.filter((b) => b.level === level);
+                        return (
+                            <div key={level} className="flex gap-0.5 items-center">
+                                <div className="w-5 font-mono text-[8px] text-gray-600 text-right">
+                                    LV{level}
+                                </div>
+                                {slots.map((s, si) => (
+                                    <div
+                                        key={s.id}
+                                        className={`flex-1 h-3.5 ${
+                                            s.occupied
+                                                ? "bg-emerald-500/70 border border-emerald-500"
+                                                : "bg-white/5 border border-white/10"
+                                        } ${si === slots.length - 1 ? "border-r-amber-400 border-r" : ""}`}
+                                        title={s.code}
+                                    />
+                                ))}
+                            </div>
+                        );
+                    })}
+                    <div className="flex gap-0.5 items-center mt-1">
+                        <div className="w-5" />
+                        <div className="flex-1 flex justify-between font-mono text-[8px] text-gray-600">
+                            <span className="text-gray-600">LOAD REAR →</span>
+                            <span className="text-amber-400">→ EXIT/PICK</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between font-mono text-[10px]">
+                    <span className="text-gray-400">{lane.filled_slots}/{lane.total_slots} pallets</span>
+                    <span className={pct < 40 ? "text-emerald-400" : pct < 80 ? "text-amber-400" : "text-red-400"}>
+                        {pct}%
+                    </span>
+                </div>
+            </button>
+        );
+    }
+
     return (
         <button
             onClick={onClick}
@@ -299,9 +621,7 @@ function LaneCard({ lane, onClick }) {
         >
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                    <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">
-                        Lane
-                    </div>
+                    <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">Lane</div>
                     <div className="font-mono text-amber-400 font-bold">L{String(lane.lane_number).padStart(2, "0")}</div>
                     <span className="font-mono text-[9px] px-1.5 py-0.5 bg-white/5 text-gray-400">
                         TYPE {lane.rack_type}
@@ -310,17 +630,13 @@ function LaneCard({ lane, onClick }) {
                 <ArrowRight size={14} className="text-gray-600 group-hover:text-amber-400 transition-colors" />
             </div>
 
-            {/* Visual: levels stacked, depth across (drive-in shows entry on left) */}
             <div className="space-y-1 mb-2">
-                {/* Render top-down (Level 4 → Level 1) */}
                 {[...Array(lane.levels)].map((_, idx) => {
                     const level = lane.levels - idx;
                     const slots = lane.bins.filter((b) => b.level === level);
                     return (
                         <div key={level} className="flex gap-0.5 items-center">
-                            <div className="w-5 font-mono text-[8px] text-gray-600 text-right">
-                                LV{level}
-                            </div>
+                            <div className="w-5 font-mono text-[8px] text-gray-600 text-right">LV{level}</div>
                             {slots.map((s) => (
                                 <div
                                     key={s.id}
@@ -345,9 +661,7 @@ function LaneCard({ lane, onClick }) {
             </div>
 
             <div className="flex items-center justify-between font-mono text-[10px]">
-                <span className="text-gray-400">
-                    {lane.filled_slots}/{lane.total_slots} pallets
-                </span>
+                <span className="text-gray-400">{lane.filled_slots}/{lane.total_slots} pallets</span>
                 <span className={pct < 40 ? "text-emerald-400" : pct < 80 ? "text-amber-400" : "text-red-400"}>
                     {pct}%
                 </span>
@@ -367,20 +681,42 @@ function Legend() {
                 <div className="w-3 h-3 bg-emerald-500/70 border border-emerald-500" />
                 <span className="text-gray-500">Loaded</span>
             </div>
+            <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-amber-500/20 border border-amber-500/40" />
+                <span className="text-amber-500">Flow Rack</span>
+            </div>
         </div>
     );
 }
 
-function LaneDrawer({ lane, onClose }) {
+/* ─── Lane Drawer ─────────────────────────────────────────── */
+function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
     const [contents, setContents] = useState(null);
+    const [assigning, setAssigning] = useState(false);
+    const [selectedSku, setSelectedSku] = useState(lane.sku_assignment || "");
+    const [busy, setBusy] = useState(false);
+
+    const isFlow = lane.rack_type === "flow_rack";
+
     useEffect(() => {
-        (async () => {
-            const r = await api.get(
-                `/storage/lanes/${lane.row}/${lane.lane_number}/contents`
-            );
-            setContents(r.data);
-        })();
+        api.get(`/storage/lanes/${lane.row}/${lane.lane_number}/contents`).then((r) =>
+            setContents(r.data)
+        );
     }, [lane]);
+
+    const handleAssign = async () => {
+        setBusy(true);
+        try {
+            await api.patch(
+                `/storage/lanes/${activeZone}/${lane.row}/${lane.lane_number}/assign-sku`,
+                { sku_id: selectedSku || null }
+            );
+            onAssigned();
+            setAssigning(false);
+        } finally {
+            setBusy(false);
+        }
+    };
 
     return (
         <div
@@ -393,8 +729,8 @@ function LaneDrawer({ lane, onClose }) {
             >
                 <div className="sticky top-0 bg-[#111317] flex items-center justify-between p-5 border-b border-white/10 z-10">
                     <div>
-                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
-                            // LANE INSPECTION
+                        <div className={`font-mono text-[10px] uppercase tracking-widest ${isFlow ? "text-emerald-400" : "text-amber-400"}`}>
+                            {isFlow ? "// FLOW RACK LANE // FIFO" : "// LANE INSPECTION"}
                         </div>
                         <h3 className="text-xl font-bold tracking-tight mt-1">
                             ROW {lane.row} · LANE L{String(lane.lane_number).padStart(2, "0")}
@@ -405,21 +741,113 @@ function LaneDrawer({ lane, onClose }) {
                     </button>
                 </div>
 
+                {/* FIFO explanation banner for flow rack */}
+                {isFlow && (
+                    <div className="mx-5 mt-4 border border-emerald-500/30 bg-emerald-500/5 p-4">
+                        <div className="flex items-start gap-3">
+                            <ArrowLeftRight size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                            <div>
+                                <div className="font-mono text-[10px] uppercase tracking-widest text-emerald-400 mb-1">
+                                    Gravity Flow Rack — Auto FIFO
+                                </div>
+                                <div className="text-xs text-gray-400 leading-relaxed">
+                                    Pallets are <strong className="text-white">loaded from the rear</strong> and automatically
+                                    slide forward on rollers to the <strong className="text-white">exit/pick face</strong>.
+                                    The oldest pallet is always at the front — FIFO is enforced mechanically without
+                                    operator intervention.
+                                </div>
+                                <div className="mt-2 flex items-center gap-2 font-mono text-[10px]">
+                                    <span className="text-gray-600">REAR (load)</span>
+                                    <MoveRight size={14} className="text-emerald-400" />
+                                    <span className="text-gray-600">··· slides forward ···</span>
+                                    <MoveRight size={14} className="text-amber-400" />
+                                    <span className="text-amber-400">FRONT (pick)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* SKU assignment section for flow rack */}
+                {isFlow && (
+                    <div className="mx-5 mt-4 border border-white/10 p-4">
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-3">
+                            // DEDICATED SKU ASSIGNMENT
+                        </div>
+                        {!assigning ? (
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    {lane.sku_assignment ? (
+                                        <div>
+                                            <div className="font-mono text-xs text-gray-500 mb-0.5">Assigned SKU</div>
+                                            <div className="font-mono text-amber-400 font-bold">
+                                                {skus.find(s => s.id === lane.sku_assignment)?.sku_code || lane.sku_assignment}
+                                            </div>
+                                            <div className="text-xs text-gray-400">
+                                                {skus.find(s => s.id === lane.sku_assignment)?.name}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-sm text-gray-500 italic">No SKU assigned — mixed product mode</div>
+                                    )}
+                                </div>
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => setAssigning(true)}
+                                        className="flex items-center gap-1.5 text-xs font-mono border border-white/10 hover:border-amber-500/40 text-gray-400 hover:text-amber-400 px-3 py-2 uppercase tracking-wider transition-colors"
+                                    >
+                                        <Tag size={12} /> {lane.sku_assignment ? "Change" : "Assign SKU"}
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <select
+                                    value={selectedSku}
+                                    onChange={(e) => setSelectedSku(e.target.value)}
+                                    className="w-full bg-[#0d0e12] border border-white/10 px-3 py-2 text-sm font-mono focus:border-amber-500 focus:outline-none"
+                                >
+                                    <option value="">— No assignment (mixed SKU) —</option>
+                                    {skus.map((s) => (
+                                        <option key={s.id} value={s.id}>
+                                            {s.sku_code} · {s.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleAssign}
+                                        disabled={busy}
+                                        className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm py-2 uppercase tracking-wider disabled:opacity-60"
+                                    >
+                                        {busy ? "Saving…" : "Save Assignment"}
+                                    </button>
+                                    <button
+                                        onClick={() => { setAssigning(false); setSelectedSku(lane.sku_assignment || ""); }}
+                                        className="px-4 border border-white/10 text-gray-400 hover:text-white text-sm py-2"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 <div className="p-5 grid grid-cols-2 gap-3 border-b border-white/10">
-                    <Detail label="Rack Type" value={lane.rack_type} />
+                    <Detail label="Rack Type" value={isFlow ? "Flow Rack (FIFO)" : lane.rack_type} />
                     <Detail label="Levels" value={lane.levels} />
                     <Detail label="Depth (positions)" value={lane.depth} />
                     <Detail label="Total Slots" value={lane.total_slots} />
-                    <Detail label="Weight Capacity" value={`${lane.weight_capacity_kg.toLocaleString()} kg`} />
-                    <Detail
-                        label="Occupied"
-                        value={`${lane.filled_slots} / ${lane.total_slots}`}
-                    />
+                    <Detail label="Weight Capacity" value={`${lane.weight_capacity_kg?.toLocaleString()} kg`} />
+                    <Detail label="Occupied" value={`${lane.filled_slots} / ${lane.total_slots}`} />
                 </div>
 
                 <div className="p-5">
                     <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-3">
-                        // PALLET CONTENTS // BY LEVEL × POSITION
+                        {isFlow
+                            ? "// PALLET CONTENTS // POSITION P01 = EXIT FACE"
+                            : "// PALLET CONTENTS // BY LEVEL × POSITION"}
                     </div>
                     <div className="space-y-1">
                         {contents === null ? (
@@ -428,9 +856,7 @@ function LaneDrawer({ lane, onClose }) {
                             contents.map((c, i) => {
                                 const exp = c.item?.expiry_date;
                                 const daysLeft = exp
-                                    ? Math.floor(
-                                          (new Date(exp).getTime() - Date.now()) / 86400000
-                                      )
+                                    ? Math.floor((new Date(exp).getTime() - Date.now()) / 86400000)
                                     : null;
                                 const expClass =
                                     daysLeft === null
@@ -440,19 +866,27 @@ function LaneDrawer({ lane, onClose }) {
                                           : daysLeft < 90
                                             ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
                                             : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+
+                                const pos = c.bin?.code?.split("-P")?.[1];
+                                const isExit = pos === "01";
                                 return (
                                     <div
                                         key={i}
                                         className={`flex items-center gap-3 px-3 py-2 border ${
                                             c.item ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5"
-                                        }`}
+                                        } ${isFlow && isExit ? "border-l-2 border-l-amber-400" : ""}`}
                                     >
                                         <Layers
                                             size={12}
                                             className={c.item ? "text-emerald-400 shrink-0" : "text-gray-600 shrink-0"}
                                         />
-                                        <div className="font-mono text-[10px] text-amber-400 w-44 shrink-0">
+                                        <div className="font-mono text-[10px] text-amber-400 w-44 shrink-0 flex items-center gap-1.5">
                                             {c.bin.code}
+                                            {isFlow && isExit && (
+                                                <span className="text-amber-400 text-[9px] bg-amber-500/10 px-1 border border-amber-500/30">
+                                                    PICK
+                                                </span>
+                                            )}
                                         </div>
                                         {c.item ? (
                                             <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
@@ -464,17 +898,13 @@ function LaneDrawer({ lane, onClose }) {
                                                     </div>
                                                 </div>
                                                 {daysLeft !== null && (
-                                                    <div
-                                                        className={`shrink-0 font-mono text-[10px] px-2 py-0.5 border ${expClass}`}
-                                                    >
+                                                    <div className={`shrink-0 font-mono text-[10px] px-2 py-0.5 border ${expClass}`}>
                                                         EXP {exp} · {daysLeft}d
                                                     </div>
                                                 )}
                                             </div>
                                         ) : (
-                                            <div className="font-mono text-[10px] text-gray-600 uppercase">
-                                                Empty slot
-                                            </div>
+                                            <div className="font-mono text-[10px] text-gray-600 uppercase">Empty slot</div>
                                         )}
                                     </div>
                                 );
