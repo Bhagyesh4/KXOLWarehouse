@@ -5,6 +5,7 @@ import {
     Layers,
     Package2,
     ArrowRight,
+    ArrowLeft,
     X,
     Sparkles,
     ArrowLeftRight,
@@ -15,6 +16,8 @@ import {
     Trash2,
     Plus,
     AlertTriangle,
+    PackagePlus,
+    PackageMinus,
 } from "lucide-react";
 import ZoneProvisionModal from "../components/ZoneProvisionModal";
 import RackElevationSVG from "../components/RackElevationSVG";
@@ -1091,14 +1094,18 @@ function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
     const [assigning, setAssigning] = useState(false);
     const [selectedSku, setSelectedSku] = useState(lane.sku_assignment || "");
     const [busy, setBusy] = useState(false);
+    const [showInbound, setShowInbound] = useState(false);
+    const [outboundTarget, setOutboundTarget] = useState(null); // {level, position, item, binCode}
 
     const isFlow = lane.rack_type === "flow_rack";
+    const isDriveIn = !isFlow;
 
-    useEffect(() => {
+    const loadContents = () =>
         api.get(`/storage/lanes/${lane.row}/${lane.lane_number}/contents`).then((r) =>
             setContents(r.data)
         );
-    }, [lane]);
+
+    useEffect(() => { loadContents(); }, [lane]); // eslint-disable-line
 
     const handleAssign = async () => {
         setBusy(true);
@@ -1126,15 +1133,37 @@ function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
                 <div className="sticky top-0 bg-[#111317] flex items-center justify-between p-5 border-b border-white/10 z-10">
                     <div>
                         <div className={`font-mono text-[10px] uppercase tracking-widest ${isFlow ? "text-emerald-400" : "text-amber-400"}`}>
-                            {isFlow ? "// FLOW RACK LANE // FIFO" : "// LANE INSPECTION"}
+                            {isFlow ? "// FLOW RACK LANE // FIFO" : "// DRIVE-IN RACK // LIFO"}
                         </div>
                         <h3 className="text-xl font-bold tracking-tight mt-1">
                             ROW {lane.row} · LANE L{String(lane.lane_number).padStart(2, "0")}
                         </h3>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white" data-testid="lane-drawer-close">
-                        <X size={20} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {isDriveIn && (
+                            <>
+                                <button
+                                    onClick={() => setShowInbound(true)}
+                                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-bold uppercase tracking-wider"
+                                >
+                                    <PackagePlus size={13} /> Inbound
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const front = contents?.find((c) => c.item && c.bin?.position === 1);
+                                        if (front) setOutboundTarget({ level: front.bin.level, position: front.bin.position, item: front.item, binCode: front.bin.code });
+                                    }}
+                                    disabled={!contents?.some((c) => c.item && c.bin?.position === 1)}
+                                    className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:bg-white/8 disabled:text-gray-600 text-black px-3 py-1.5 text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed"
+                                >
+                                    <PackageMinus size={13} /> Pick
+                                </button>
+                            </>
+                        )}
+                        <button onClick={onClose} className="text-gray-400 hover:text-white ml-1" data-testid="lane-drawer-close">
+                            <X size={20} />
+                        </button>
+                    </div>
                 </div>
 
                 {/* FIFO explanation banner for flow rack */}
@@ -1265,12 +1294,15 @@ function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
 
                                 const pos = c.bin?.code?.split("-P")?.[1];
                                 const isExit = pos === "01";
+                                // Drive-in: aisle-face slot (P01) that has a pallet = pickable
+                                const isPickable = isDriveIn && c.item && c.bin?.position === 1;
                                 return (
                                     <div
                                         key={i}
                                         className={`flex items-center gap-3 px-3 py-2 border ${
                                             c.item ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/5"
-                                        } ${isFlow && isExit ? "border-l-2 border-l-amber-400" : ""}`}
+                                        } ${isPickable ? "border-l-2 border-l-amber-400" : ""}
+                                        ${isFlow && isExit ? "border-l-2 border-l-amber-400" : ""}`}
                                     >
                                         <Layers
                                             size={12}
@@ -1278,6 +1310,11 @@ function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
                                         />
                                         <div className="font-mono text-[10px] text-amber-400 w-44 shrink-0 flex items-center gap-1.5">
                                             {c.bin.code}
+                                            {isPickable && (
+                                                <span className="text-amber-400 text-[9px] bg-amber-500/10 px-1 border border-amber-500/30">
+                                                    AISLE
+                                                </span>
+                                            )}
                                             {isFlow && isExit && (
                                                 <span className="text-amber-400 text-[9px] bg-amber-500/10 px-1 border border-amber-500/30">
                                                     PICK
@@ -1293,11 +1330,26 @@ function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
                                                         {c.item.batch_no && ` · BATCH ${c.item.batch_no}`}
                                                     </div>
                                                 </div>
-                                                {daysLeft !== null && (
-                                                    <div className={`shrink-0 font-mono text-[10px] px-2 py-0.5 border ${expClass}`}>
-                                                        EXP {exp} · {daysLeft}d
-                                                    </div>
-                                                )}
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    {daysLeft !== null && (
+                                                        <div className={`font-mono text-[10px] px-2 py-0.5 border ${expClass}`}>
+                                                            EXP {exp} · {daysLeft}d
+                                                        </div>
+                                                    )}
+                                                    {isPickable && (
+                                                        <button
+                                                            onClick={() => setOutboundTarget({
+                                                                level: c.bin.level,
+                                                                position: c.bin.position,
+                                                                item: c.item,
+                                                                binCode: c.bin.code,
+                                                            })}
+                                                            className="flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/40 text-amber-400 font-mono text-[9px] uppercase tracking-wider px-2 py-1 transition-colors"
+                                                        >
+                                                            <PackageMinus size={10} /> Pick
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         ) : (
                                             <div className="font-mono text-[10px] text-gray-600 uppercase">Empty slot</div>
@@ -1308,6 +1360,36 @@ function LaneDrawer({ lane, skus, isAdmin, activeZone, onClose, onAssigned }) {
                         )}
                     </div>
                 </div>
+
+                {/* Inbound Modal */}
+                {showInbound && (
+                    <LaneInboundModal
+                        skus={skus}
+                        zone={activeZone}
+                        lane={lane}
+                        onClose={() => setShowInbound(false)}
+                        onSaved={async (result) => {
+                            setShowInbound(false);
+                            await loadContents();
+                            onAssigned();
+                        }}
+                    />
+                )}
+
+                {/* Outbound Confirm */}
+                {outboundTarget && (
+                    <LaneOutboundConfirm
+                        zone={activeZone}
+                        lane={lane}
+                        target={outboundTarget}
+                        onClose={() => setOutboundTarget(null)}
+                        onDispatched={async () => {
+                            setOutboundTarget(null);
+                            await loadContents();
+                            onAssigned();
+                        }}
+                    />
+                )}
             </div>
         </div>
     );
@@ -1318,6 +1400,266 @@ function Detail({ label, value }) {
         <div className="border border-white/5 p-3">
             <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">{label}</div>
             <div className="font-mono text-sm mt-1">{value}</div>
+        </div>
+    );
+}
+
+/* ─── Lane Inbound Modal ──────────────────────────────────── */
+function LaneInboundModal({ skus, zone, lane, onClose, onSaved }) {
+    const levelCount = lane.levels || 1;
+    const levelOptions = Array.from({ length: levelCount }, (_, i) => i + 1);
+    const [form, setForm] = useState({
+        level: levelOptions[0],
+        sku_id: "",
+        batch_no: "",
+        manufacture_date: "",
+        expiry_date: "",
+        pallet_code: "",
+    });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const [result, setResult] = useState(null);
+
+    const submit = async (e) => {
+        e.preventDefault();
+        if (!form.sku_id) { setErr("Select a SKU"); return; }
+        setBusy(true); setErr("");
+        try {
+            const r = await api.post(
+                `/storage/lanes/${zone}/${lane.row}/${lane.lane_number}/inbound`,
+                {
+                    level: Number(form.level),
+                    sku_id: form.sku_id,
+                    batch_no: form.batch_no || null,
+                    manufacture_date: form.manufacture_date || null,
+                    expiry_date: form.expiry_date || null,
+                    pallet_code: form.pallet_code || null,
+                }
+            );
+            setResult(r.data);
+        } catch (er) {
+            setErr(er.response?.data?.detail || er.message);
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] bg-black/75 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-[#181a20] border border-emerald-500/30 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-emerald-500/20 bg-[#111317]">
+                    <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-emerald-400">// INBOUND — DRIVE-IN RACK</div>
+                        <h3 className="text-lg font-bold mt-1">
+                            Load Pallet — ROW {lane.row} · L{String(lane.lane_number).padStart(2, "0")}
+                        </h3>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+                </div>
+
+                {result ? (
+                    <div className="p-6 space-y-4">
+                        <div className="flex items-center gap-3 border border-emerald-500/30 bg-emerald-500/8 p-4">
+                            <CheckCircle2 size={20} className="text-emerald-400 shrink-0" />
+                            <div>
+                                <div className="font-mono text-[10px] uppercase tracking-widest text-emerald-400">Pallet Placed</div>
+                                <div className="text-sm font-semibold mt-0.5">{result.pallet_code}</div>
+                                <div className="font-mono text-xs text-gray-400 mt-0.5">
+                                    Bin: {result.bin_code} · Level {result.placed_at_level} · Position P{String(result.placed_at_position).padStart(2, "0")}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => { setResult(null); setForm({ ...form, batch_no: "", pallet_code: "", manufacture_date: "", expiry_date: "" }); }}
+                                className="flex-1 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 font-mono text-xs uppercase tracking-wider py-2.5"
+                            >
+                                + Load Another
+                            </button>
+                            <button onClick={() => onSaved(result)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-2.5">
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <form onSubmit={submit} className="p-5 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Rack Level *</label>
+                                <select
+                                    value={form.level}
+                                    onChange={(e) => setForm({ ...form, level: e.target.value })}
+                                    className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                                >
+                                    {levelOptions.map((l) => (
+                                        <option key={l} value={l}>Level {l}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Pallet Code</label>
+                                <input
+                                    value={form.pallet_code}
+                                    onChange={(e) => setForm({ ...form, pallet_code: e.target.value })}
+                                    placeholder="Auto-generated"
+                                    className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">SKU *</label>
+                            <select
+                                value={form.sku_id}
+                                onChange={(e) => setForm({ ...form, sku_id: e.target.value })}
+                                required
+                                className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                            >
+                                <option value="">— Select SKU —</option>
+                                {skus.map((s) => (
+                                    <option key={s.id} value={s.id}>{s.sku_code} · {s.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Batch No</label>
+                            <input
+                                value={form.batch_no}
+                                onChange={(e) => setForm({ ...form, batch_no: e.target.value })}
+                                placeholder="e.g. B2025-001"
+                                className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Manufacture Date</label>
+                                <input
+                                    type="date"
+                                    value={form.manufacture_date}
+                                    onChange={(e) => setForm({ ...form, manufacture_date: e.target.value })}
+                                    className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Expiry Date</label>
+                                <input
+                                    type="date"
+                                    value={form.expiry_date}
+                                    onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
+                                    className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                                />
+                            </div>
+                        </div>
+                        {err && (
+                            <div className="font-mono text-xs text-red-400 border border-red-500/30 bg-red-500/10 p-3">{err}</div>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                            <button type="button" onClick={onClose} className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white">
+                                Cancel
+                            </button>
+                            <button type="submit" disabled={busy} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-60">
+                                {busy ? "Loading…" : "Place Pallet →"}
+                            </button>
+                        </div>
+                    </form>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/* ─── Lane Outbound Confirm ───────────────────────────────── */
+function LaneOutboundConfirm({ zone, lane, target, onClose, onDispatched }) {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const [dispatched, setDispatched] = useState(null);
+
+    const exp = target.item?.expiry_date;
+    const daysLeft = exp ? Math.floor((new Date(exp) - Date.now()) / 86400000) : null;
+
+    const confirm = async () => {
+        setBusy(true); setErr("");
+        try {
+            const r = await api.post(
+                `/storage/lanes/${zone}/${lane.row}/${lane.lane_number}/outbound`,
+                { level: target.level }
+            );
+            setDispatched(r.data.dispatched);
+        } catch (er) {
+            setErr(er.response?.data?.detail || er.message);
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] bg-black/75 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-[#181a20] border border-amber-500/30 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-amber-500/20 bg-[#111317]">
+                    <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">// OUTBOUND — DRIVE-IN RACK</div>
+                        <h3 className="text-lg font-bold mt-1">Pick from Aisle Face</h3>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+                </div>
+
+                {dispatched ? (
+                    <div className="p-5 space-y-4">
+                        <div className="flex items-center gap-3 border border-emerald-500/30 bg-emerald-500/8 p-4">
+                            <CheckCircle2 size={20} className="text-emerald-400 shrink-0" />
+                            <div>
+                                <div className="font-mono text-[10px] uppercase tracking-widest text-emerald-400">Pallet Dispatched</div>
+                                <div className="text-sm font-semibold mt-0.5">{dispatched.pallet_code}</div>
+                                <div className="font-mono text-xs text-gray-400">{dispatched.sku_code} · {dispatched.sku_name}</div>
+                                <div className="font-mono text-xs text-gray-600 mt-0.5">From: {dispatched.bin_code}</div>
+                            </div>
+                        </div>
+                        <button onClick={onDispatched} className="w-full bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm uppercase tracking-wider py-2.5">
+                            Done
+                        </button>
+                    </div>
+                ) : (
+                    <div className="p-5 space-y-4">
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-1">Pallet to Dispatch</div>
+                        <div className="border border-white/10 bg-[#0d0e12] p-4 space-y-2">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <div className="font-mono text-amber-400 font-bold">{target.item?.pallet_code || "—"}</div>
+                                    <div className="text-sm font-semibold mt-0.5">{target.item?.sku?.name}</div>
+                                    <div className="font-mono text-xs text-gray-500">{target.item?.sku?.sku_code}
+                                        {target.item?.batch_no && ` · BATCH ${target.item.batch_no}`}
+                                    </div>
+                                </div>
+                                <div className="font-mono text-[10px] text-gray-500 text-right">
+                                    <div>{target.binCode}</div>
+                                    <div>Level {target.level} · P{String(target.position).padStart(2, "0")}</div>
+                                </div>
+                            </div>
+                            {exp && (
+                                <div className={`font-mono text-[10px] px-2 py-1 border inline-block ${
+                                    daysLeft < 30 ? "text-red-400 border-red-500/30 bg-red-500/10"
+                                    : daysLeft < 90 ? "text-amber-400 border-amber-500/30 bg-amber-500/10"
+                                    : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
+                                }`}>
+                                    EXP {exp} · {daysLeft}d remaining
+                                </div>
+                            )}
+                        </div>
+                        {err && (
+                            <div className="font-mono text-xs text-red-400 border border-red-500/30 bg-red-500/10 p-3">{err}</div>
+                        )}
+                        <div className="flex gap-2">
+                            <button onClick={onClose} className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white">
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirm}
+                                disabled={busy}
+                                className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-60"
+                            >
+                                {busy ? "Dispatching…" : "Confirm Dispatch →"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

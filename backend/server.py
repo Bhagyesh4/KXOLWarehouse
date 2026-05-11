@@ -410,6 +410,119 @@ async def bin_pallet_detail(bin_id: str, user: dict = Depends(get_user)):
     }
 
 
+# ---------- Storage Lane Inbound / Outbound (drive-in racks) ----------
+
+class StorageLaneInboundIn(BaseModel):
+    level: int
+    sku_id: str
+    batch_no: Optional[str] = None
+    manufacture_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    pallet_code: Optional[str] = None
+
+class StorageLaneOutboundIn(BaseModel):
+    level: int
+    ref: Optional[str] = None
+
+
+@api.post("/storage/lanes/{zone}/{row}/{lane_number}/inbound")
+async def storage_lane_inbound(
+    zone: str,
+    row: str,
+    lane_number: int,
+    body: StorageLaneInboundIn,
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    """Place a pallet at the deepest available slot in a drive-in rack lane (rear-first loading)."""
+    bins = await db.locations.find(
+        {"zone": zone, "row_label": row, "lane_number": lane_number, "level": body.level},
+        {"_id": 0},
+    ).sort("position", 1).to_list(200)
+
+    if not bins:
+        raise HTTPException(404, f"Lane {row}-{lane_number} level {body.level} not found in zone {zone}")
+
+    empty_bins = [b for b in bins if b.get("occupied", 0) == 0]
+    if not empty_bins:
+        raise HTTPException(409, f"Lane level {body.level} is fully occupied — no space available")
+
+    # Drive-in: load from rear first (highest position number = deepest slot)
+    target = max(empty_bins, key=lambda b: b["position"])
+
+    now = datetime.now(timezone.utc).isoformat()
+    pallet_code = body.pallet_code or f"PLT-{zone}-{row}{lane_number:02d}L{body.level:02d}P{target['position']:02d}"
+
+    stock_doc = {
+        "id": str(uuid.uuid4()),
+        "sku_id": body.sku_id,
+        "location_id": target["id"],
+        "qty": 1,
+        "batch_no": body.batch_no,
+        "manufacture_date": body.manufacture_date,
+        "expiry_date": body.expiry_date,
+        "received_date": now,
+        "pallet_code": pallet_code,
+    }
+    await db.stock.insert_one(stock_doc)
+    await db.locations.update_one({"id": target["id"]}, {"$inc": {"occupied": 1}})
+
+    return {
+        "ok": True,
+        "bin_code": target["code"],
+        "placed_at_level": body.level,
+        "placed_at_position": target["position"],
+        "pallet_code": pallet_code,
+    }
+
+
+@api.post("/storage/lanes/{zone}/{row}/{lane_number}/outbound")
+async def storage_lane_outbound(
+    zone: str,
+    row: str,
+    lane_number: int,
+    body: StorageLaneOutboundIn,
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    """Pick the most accessible pallet (LIFO — lowest position = aisle face) from a drive-in rack lane."""
+    bins = await db.locations.find(
+        {
+            "zone": zone,
+            "row_label": row,
+            "lane_number": lane_number,
+            "level": body.level,
+            "occupied": {"$gt": 0},
+        },
+        {"_id": 0},
+    ).sort("position", 1).to_list(200)
+
+    if not bins:
+        raise HTTPException(409, f"No pallets in level {body.level} of lane {row}-{lane_number}")
+
+    # LIFO: pick from lowest position (P01 = aisle/pick face)
+    target = bins[0]
+
+    stock = await db.stock.find_one({"location_id": target["id"], "qty": {"$gt": 0}}, {"_id": 0})
+    if not stock:
+        raise HTTPException(500, "Location shows occupied but no stock record found — data inconsistency")
+
+    sku = await db.skus.find_one({"id": stock["sku_id"]}, {"_id": 0, "sku_code": 1, "name": 1})
+    dispatched = {
+        "pallet_code": stock.get("pallet_code"),
+        "sku_code": sku["sku_code"] if sku else "?",
+        "sku_name": sku["name"] if sku else "?",
+        "batch_no": stock.get("batch_no"),
+        "expiry_date": stock.get("expiry_date"),
+        "bin_code": target["code"],
+        "level": body.level,
+        "position": target["position"],
+    }
+
+    await db.stock.delete_one({"location_id": target["id"], "qty": {"$gt": 0}})
+    await db.locations.update_one({"id": target["id"]}, {"$set": {"occupied": 0}})
+
+    return {"ok": True, "dispatched": dispatched}
+
+
 # ---------- Blueprint Upload (AI Parse + Manual Provision) ----------
 from fastapi import UploadFile, File, Form
 
