@@ -303,7 +303,7 @@ async def sku_stock(sku_id: str, user: dict = Depends(get_user)):
 @api.get("/storage/locations")
 async def list_locations(zone: Optional[str] = None, user: dict = Depends(get_user)):
     flt = {"zone": zone} if zone else {}
-    return await db.locations.find(flt, {"_id": 0}).sort([("zone", 1), ("rack", 1), ("bin", 1)]).to_list(2000)
+    return await db.locations.find(flt, {"_id": 0}).sort([("zone", 1), ("rack", 1), ("bin", 1)]).to_list(10000)
 
 
 @api.get("/storage/zones")

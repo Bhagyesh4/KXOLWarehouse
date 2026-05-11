@@ -445,10 +445,21 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                                             className="col-span-4 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
                                         >
                                             <option value="">— Bin/Rack —</option>
-                                            {locs.map((l) => (
-                                                <option key={l.id} value={l.id}>
-                                                    {l.code}
-                                                </option>
+                                            {Object.entries(
+                                                locs.reduce((acc, l) => {
+                                                    const z = l.zone || "Other";
+                                                    if (!acc[z]) acc[z] = [];
+                                                    acc[z].push(l);
+                                                    return acc;
+                                                }, {})
+                                            ).map(([zone, bins]) => (
+                                                <optgroup key={zone} label={`── ${zone} ──`}>
+                                                    {bins.map((l) => (
+                                                        <option key={l.id} value={l.id}>
+                                                            {l.code}
+                                                        </option>
+                                                    ))}
+                                                </optgroup>
                                             ))}
                                         </select>
                                         <input
