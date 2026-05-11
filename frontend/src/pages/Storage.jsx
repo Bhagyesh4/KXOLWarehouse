@@ -849,8 +849,11 @@ function FilterChip({ active, onClick, label, testid, highlight }) {
 function LaneCard({ lane, onClick }) {
     const isFlow = lane.rack_type === "flow_rack";
     const pct = lane.total_slots ? Math.round((lane.filled_slots / lane.total_slots) * 100) : 0;
+    const [palletBin, setPalletBin] = useState(null);
 
     const rackBins = lane.bins.map((b) => ({
+        id: b.id,
+        code: b.code,
         level: b.level,
         position: b.position,
         occupied: !!b.occupied,
@@ -862,13 +865,15 @@ function LaneCard({ lane, onClick }) {
         : "border-white/10 hover:border-amber-500/50";
 
     return (
-        <button
-            onClick={onClick}
+        <div
             data-testid={`lane-${lane.row}-${lane.lane_number}`}
-            className={`text-left bg-[#0d0e12] border transition-colors p-3 group ${borderCls}`}
+            className={`bg-[#0d0e12] border transition-colors p-3 ${borderCls}`}
         >
-            {/* ── Header ── */}
-            <div className="flex items-center justify-between mb-2">
+            {/* ── Header — click to open full lane drawer ── */}
+            <button
+                onClick={onClick}
+                className="w-full text-left flex items-center justify-between mb-2 group"
+            >
                 <div className="flex items-center gap-2">
                     <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">Lane</div>
                     <div className="font-mono text-amber-400 font-bold">
@@ -885,9 +890,9 @@ function LaneCard({ lane, onClick }) {
                     )}
                 </div>
                 <ArrowRight size={14} className="text-gray-600 group-hover:text-amber-400 transition-colors" />
-            </div>
+            </button>
 
-            {/* ── Rack elevation drawing ── */}
+            {/* ── Rack elevation drawing — click an occupied slot to see pallet detail ── */}
             <div className="mb-2 overflow-hidden">
                 <RackElevationSVG
                     levels={lane.levels}
@@ -895,6 +900,7 @@ function LaneCard({ lane, onClick }) {
                     bins={rackBins}
                     weightCapacityKg={lane.weight_capacity_kg || 1000}
                     compact
+                    onSlotClick={(bin) => setPalletBin(bin)}
                 />
             </div>
 
@@ -920,7 +926,143 @@ function LaneCard({ lane, onClick }) {
                     {pct}%
                 </span>
             </div>
-        </button>
+
+            {/* ── Single-pallet detail modal ── */}
+            {palletBin && (
+                <PalletDetailModal bin={palletBin} onClose={() => setPalletBin(null)} />
+            )}
+        </div>
+    );
+}
+
+/* ─── Pallet Detail Modal ────────────────────────────────── */
+function PalletDetailModal({ bin, onClose }) {
+    const [data, setData] = useState(null);
+    const [err, setErr]   = useState(null);
+
+    useEffect(() => {
+        setData(null);
+        setErr(null);
+        api.get(`/storage/bins/${bin.id}/pallet`)
+            .then((r) => setData(r.data))
+            .catch(() => setErr("Could not load pallet data."));
+    }, [bin.id]);
+
+    const item = data?.item;
+    const binInfo = data?.bin ?? bin;
+
+    const exp = item?.expiry_date;
+    const daysLeft = exp ? Math.floor((new Date(exp) - Date.now()) / 86400000) : null;
+    const expColor =
+        daysLeft === null ? "text-gray-400"
+        : daysLeft < 30   ? "text-red-400"
+        : daysLeft < 90   ? "text-amber-400"
+                          : "text-emerald-400";
+
+    return (
+        <div
+            className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+            onClick={onClose}
+        >
+            <div
+                className="bg-[#181a20] border border-white/10 w-full max-w-sm"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-[#111317]">
+                    <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
+                            // PALLET DETAIL
+                        </div>
+                        <div className="font-mono text-sm font-bold mt-0.5 text-white">
+                            {binInfo.code}
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                        <X size={18} />
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="p-5 space-y-4">
+                    {err && (
+                        <div className="font-mono text-xs text-red-400 border border-red-500/30 bg-red-500/10 p-3">
+                            {err}
+                        </div>
+                    )}
+
+                    {!data && !err && (
+                        <div className="font-mono text-xs text-gray-500 py-4 text-center">LOADING...</div>
+                    )}
+
+                    {data && !item && (
+                        <div className="font-mono text-xs text-gray-500 py-4 text-center">Slot is empty.</div>
+                    )}
+
+                    {item && (
+                        <>
+                            {/* SKU */}
+                            <div className="border border-white/8 bg-white/2 p-3 space-y-0.5">
+                                <div className="font-mono text-[9px] uppercase tracking-widest text-gray-500">SKU</div>
+                                <div className="font-mono text-amber-400 font-bold text-sm">{item.sku?.sku_code}</div>
+                                <div className="text-sm text-white">{item.sku?.name}</div>
+                                {item.sku?.category && (
+                                    <div className="font-mono text-[10px] text-gray-500">{item.sku.category}</div>
+                                )}
+                            </div>
+
+                            {/* Pallet & batch */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <PalletField label="Pallet Code"  value={item.pallet_code || "—"} />
+                                <PalletField label="Batch No."    value={item.batch_no || "—"} />
+                                <PalletField label="Qty"          value={`${item.qty ?? "—"} ${item.sku?.unit || ""}`} />
+                                <PalletField label="Location"     value={binInfo.code} mono />
+                            </div>
+
+                            {/* Dates */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <PalletField label="Received"     value={item.received_date || "—"} />
+                                <PalletField label="Manufactured" value={item.manufacture_date || "—"} />
+                                <div className="col-span-2 border border-white/8 bg-white/2 p-2.5">
+                                    <div className="font-mono text-[9px] uppercase tracking-widest text-gray-500 mb-0.5">Expiry Date</div>
+                                    <div className={`font-mono text-sm font-bold ${expColor}`}>
+                                        {exp || "—"}
+                                        {daysLeft !== null && (
+                                            <span className="font-normal text-[11px] ml-2">
+                                                ({daysLeft < 0 ? "EXPIRED" : `${daysLeft}d remaining`})
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {item.inbound_ref && (
+                                <PalletField label="Inbound Ref" value={item.inbound_ref} />
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 pb-4">
+                    <button
+                        onClick={onClose}
+                        className="w-full border border-white/10 hover:border-white/30 text-gray-400 hover:text-white font-mono text-xs uppercase tracking-widest py-2.5 transition-colors"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function PalletField({ label, value, mono }) {
+    return (
+        <div className="border border-white/8 bg-white/2 p-2.5">
+            <div className="font-mono text-[9px] uppercase tracking-widest text-gray-500 mb-0.5">{label}</div>
+            <div className={`${mono ? "font-mono" : ""} text-sm text-white`}>{value}</div>
+        </div>
     );
 }
 

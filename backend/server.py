@@ -372,6 +372,44 @@ async def lane_contents(row: str, lane_number: int, user: dict = Depends(get_use
     return out
 
 
+@api.get("/storage/bins/{bin_id}/pallet")
+async def bin_pallet_detail(bin_id: str, user: dict = Depends(get_user)):
+    """Return full pallet detail for a single storage bin."""
+    loc = await db.locations.find_one({"id": bin_id}, {"_id": 0})
+    if not loc:
+        raise HTTPException(404, "Bin not found")
+    stock = await db.stock.find_one({"location_id": bin_id, "qty": {"$gt": 0}}, {"_id": 0})
+    sku = None
+    if stock:
+        sku = await db.skus.find_one(
+            {"id": stock["sku_id"]},
+            {"_id": 0, "id": 1, "sku_code": 1, "name": 1, "category": 1, "unit": 1},
+        )
+    return {
+        "bin": {
+            "id": loc["id"],
+            "code": loc["code"],
+            "level": loc.get("level"),
+            "position": loc.get("position"),
+            "zone": loc.get("zone"),
+            "row_label": loc.get("row_label"),
+            "lane_number": loc.get("lane_number"),
+            "weight_capacity_kg": loc.get("weight_capacity_kg"),
+            "rack_type": loc.get("rack_type"),
+        },
+        "item": {
+            "sku": sku,
+            "qty": stock.get("qty"),
+            "batch_no": stock.get("batch_no"),
+            "pallet_code": stock.get("pallet_code"),
+            "manufacture_date": stock.get("manufacture_date"),
+            "expiry_date": stock.get("expiry_date"),
+            "received_date": stock.get("received_date"),
+            "inbound_ref": stock.get("inbound_ref"),
+        } if stock else None,
+    }
+
+
 # ---------- Blueprint Upload (AI Parse + Manual Provision) ----------
 from fastapi import UploadFile, File, Form
 

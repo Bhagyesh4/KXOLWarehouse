@@ -15,6 +15,7 @@ export default function RackElevationSVG({
     weightCapacityKg = 1000,
     compact = false,
     highlightDepth = null,
+    onSlotClick = null,   // (bin) => void  — called with the bin object when an occupied slot is clicked
 }) {
     const UW  = compact ? 5 : 7;     // upright width px
     const BH  = compact ? 5 : 8;     // beam height px
@@ -84,6 +85,7 @@ export default function RackElevationSVG({
                             const expiring = bin?.expiring;
                             const isExit   = highlightDepth === pos;
                             const sx       = fx + di * (slotW + GAP);
+                            const clickable = occupied && onSlotClick;
 
                             let fill, stroke;
                             if (isExit && occupied) {
@@ -110,6 +112,8 @@ export default function RackElevationSVG({
                                     width={slotW} height={LH - padV * 2}
                                     fill={fill} stroke={stroke}
                                     strokeWidth={0.5} rx={0.5}
+                                    style={clickable ? { cursor: "pointer" } : undefined}
+                                    onClick={clickable ? (e) => { e.stopPropagation(); onSlotClick(bin); } : undefined}
                                 />
                             );
                         })}
