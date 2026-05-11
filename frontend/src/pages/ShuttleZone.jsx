@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import RackElevationSVG, { MultiLaneRackSVG } from "../components/RackElevationSVG";
 import {
     Zap, ArrowRight, ArrowLeft, Package2, Thermometer,
     BarChart3, RefreshCw, AlertTriangle, CheckCircle2,
@@ -109,65 +110,36 @@ export default function ShuttleZone() {
                 </div>
             )}
 
-            {/* Lane×Level Heatmap */}
+            {/* Lane×Level Rack Elevation — interactive front view */}
             <div className="bg-[#181a20] border border-white/10 p-5">
-                <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase mb-4">
-                    // OCCUPANCY HEATMAP — SELECT LANE × LEVEL
+                <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase mb-1">
+                    // RACK FRONT ELEVATION — CLICK BAY TO INSPECT DEEP LANE
                 </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                        <thead>
-                            <tr>
-                                <th className="font-mono text-[10px] text-gray-600 text-left pr-4 pb-2 w-20">Level</th>
-                                {LANES.map((ln) => (
-                                    <th key={ln} className="font-mono text-[10px] text-gray-500 text-center pb-2 w-16">
-                                        Lane {String(ln).padStart(2, "0")}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {[...LEVELS].reverse().map((lv) => (
-                                <tr key={lv.no}>
-                                    <td className="font-mono text-[10px] text-gray-500 pr-4 py-1">{lv.label}</td>
-                                    {LANES.map((ln) => {
-                                        const e = matrixEntry(ln, lv.no);
-                                        const pct = e?.utilization_pct ?? 0;
-                                        const isActive = activeLane === ln && activeLevel === lv.no;
-                                        return (
-                                            <td key={ln} className="py-1 px-1 text-center">
-                                                <button
-                                                    onClick={() => { setActiveLane(ln); setActiveLevel(lv.no); }}
-                                                    title={`Lane ${ln} ${lv.label} — ${e?.occupied ?? 0}/${e?.total ?? 50} occupied`}
-                                                    className={`w-12 h-8 font-mono text-[10px] border transition-all ${
-                                                        isActive
-                                                            ? "border-cyan-400 ring-1 ring-cyan-400"
-                                                            : "border-white/5 hover:border-white/20"
-                                                    } ${
-                                                        pct === 0
-                                                            ? "bg-emerald-500/10 text-emerald-500"
-                                                            : pct < 50
-                                                              ? "bg-emerald-500/25 text-emerald-400"
-                                                              : pct < 80
-                                                                ? "bg-amber-500/30 text-amber-400"
-                                                                : "bg-red-500/30 text-red-400"
-                                                    }`}
-                                                >
-                                                    {pct}%
-                                                </button>
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div className="font-mono text-[9px] text-gray-600 mb-4">
+                    7 lanes × 5 levels · 1000 kg UDL per beam · -22°C zone
                 </div>
-                <div className="flex items-center gap-4 mt-3 text-[10px] font-mono text-gray-600">
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-emerald-500/25 border border-emerald-500/30 inline-block" /> Empty / Low</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-amber-500/30 border border-amber-500/30 inline-block" /> 50–79%</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500/30 border border-red-500/30 inline-block" /> 80–100% (Near Full)</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 border border-cyan-400 inline-block" /> Selected</span>
+                <MultiLaneRackSVG
+                    lanes={LANES}
+                    levels={LEVELS}
+                    matrixEntry={matrixEntry}
+                    activeLane={activeLane}
+                    activeLevel={activeLevel}
+                    onCellClick={(ln, lv) => { setActiveLane(ln); setActiveLevel(lv); }}
+                />
+                <div className="flex items-center gap-5 mt-3 text-[10px] font-mono text-gray-600 flex-wrap">
+                    <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 bg-emerald-500/22 border border-emerald-500/45 inline-block" /> Empty / Low
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 bg-amber-500/28 border border-amber-500/55 inline-block" /> 50–79%
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 bg-red-500/30 border border-red-500/60 inline-block" /> 80–100%
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 border border-cyan-400 bg-cyan-400/15 inline-block" /> Selected
+                    </span>
+                    <span className="ml-auto text-[9px] text-gray-700">Lane numbers below · Level numbers left</span>
                 </div>
             </div>
 
@@ -206,62 +178,61 @@ export default function ShuttleZone() {
 
                 <div className="p-5">
                     {/* Direction labels */}
-                    <div className="flex items-center justify-between font-mono text-[10px] text-gray-600 mb-2 px-1">
-                        <span className="text-amber-400">← DISPATCH (D01)</span>
-                        <span className="text-emerald-400">LOAD REAR (D50) →</span>
+                    <div className="flex items-center justify-between font-mono text-[10px] text-gray-600 mb-3 px-1">
+                        <span className="text-amber-400">← DISPATCH FACE (D01)</span>
+                        <span className="text-emerald-400">LOAD ENTRY (D50) →</span>
                     </div>
 
-                    {/* Depth strip */}
-                    <div className="overflow-x-auto pb-2">
-                        <div className="flex gap-0.5 min-w-max">
-                            {laneDetail.map((slot) => {
-                                const isExit = slot.depth === 1;
-                                const isOccupied = slot.occupied;
-                                const exp = slot.stock?.expiry_date;
-                                const daysLeft = exp
-                                    ? Math.floor((new Date(exp) - Date.now()) / 86400000)
-                                    : null;
-                                const isExpiring = daysLeft !== null && daysLeft < 30;
+                    {/* Rack elevation — single level showing all 50 depth positions */}
+                    {(() => {
+                        const elevBins = laneDetail.map((slot) => {
+                            const exp = slot.stock?.expiry_date;
+                            const daysLeft = exp
+                                ? Math.floor((new Date(exp) - Date.now()) / 86400000)
+                                : null;
+                            return {
+                                level: 1,
+                                position: slot.depth,
+                                occupied: slot.occupied,
+                                expiring: daysLeft !== null && daysLeft < 30,
+                            };
+                        });
+                        return (
+                            <RackElevationSVG
+                                levels={1}
+                                depth={50}
+                                bins={elevBins}
+                                weightCapacityKg={1000}
+                                compact={false}
+                                highlightDepth={1}
+                            />
+                        );
+                    })()}
 
-                                return (
-                                    <div key={slot.depth} className="flex flex-col items-center gap-0.5">
-                                        <div
-                                            title={
-                                                isOccupied
-                                                    ? `${slot.stock?.pallet_code || "?"} | ${slot.stock?.sku_code} | ${slot.stock?.batch_no || "no batch"} | EXP: ${slot.stock?.expiry_date || "N/A"}`
-                                                    : `D${String(slot.depth).padStart(2, "0")} — Empty`
-                                            }
-                                            className={`w-6 h-10 border transition-colors cursor-default ${
-                                                isExit
-                                                    ? isOccupied
-                                                        ? "bg-amber-500/80 border-amber-400"
-                                                        : "bg-amber-500/10 border-amber-500/40"
-                                                    : isOccupied
-                                                      ? isExpiring
-                                                          ? "bg-red-500/70 border-red-400"
-                                                          : "bg-red-500/50 border-red-400/60"
-                                                      : "bg-emerald-500/10 border-white/5"
-                                            }`}
-                                        />
-                                        {slot.depth % 5 === 1 || slot.depth === 1 ? (
-                                            <div className="font-mono text-[8px] text-gray-600">
-                                                D{String(slot.depth).padStart(2, "0")}
-                                            </div>
-                                        ) : (
-                                            <div className="h-3" />
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
+                    {/* Depth tick labels below */}
+                    <div className="flex justify-between font-mono text-[8px] text-gray-600 mt-1 px-6">
+                        <span>D01</span>
+                        <span>D10</span>
+                        <span>D20</span>
+                        <span>D30</span>
+                        <span>D40</span>
+                        <span>D50</span>
                     </div>
 
                     {/* Legend */}
-                    <div className="flex items-center gap-4 mt-3 font-mono text-[10px] text-gray-600">
-                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-500/80 border border-amber-400 inline-block" /> D01 — Exit / Dispatch</span>
-                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500/50 border border-red-400/60 inline-block" /> Occupied</span>
-                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500/70 border border-red-400 inline-block" /> Expiring &lt;30d</span>
-                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-emerald-500/10 border border-white/5 inline-block" /> Empty</span>
+                    <div className="flex items-center gap-4 mt-3 font-mono text-[10px] text-gray-600 flex-wrap">
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 bg-amber-500/85 border border-amber-400 inline-block" /> D01 — Exit / Dispatch
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 bg-amber-600/60 border border-amber-600 inline-block" /> Occupied
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 bg-red-500/65 border border-red-400 inline-block" /> Expiring &lt;30d
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-3 h-3 bg-white/3 border border-white/7 inline-block" /> Empty
+                        </span>
                     </div>
 
                     {/* Lane Stats */}

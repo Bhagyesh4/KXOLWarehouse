@@ -17,6 +17,7 @@ import {
     AlertTriangle,
 } from "lucide-react";
 import ZoneProvisionModal from "../components/ZoneProvisionModal";
+import RackElevationSVG from "../components/RackElevationSVG";
 import { useAuth } from "../context/AuthContext";
 
 export default function Storage() {
@@ -849,116 +850,70 @@ function LaneCard({ lane, onClick }) {
     const isFlow = lane.rack_type === "flow_rack";
     const pct = lane.total_slots ? Math.round((lane.filled_slots / lane.total_slots) * 100) : 0;
 
-    if (isFlow) {
-        return (
-            <button
-                onClick={onClick}
-                data-testid={`lane-${lane.row}-${lane.lane_number}`}
-                className="text-left bg-[#0d0e12] border border-amber-500/20 hover:border-amber-500/60 transition-colors p-3 group"
-            >
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">Lane</div>
-                        <div className="font-mono text-amber-400 font-bold">
-                            L{String(lane.lane_number).padStart(2, "0")}
-                        </div>
-                        <span className="font-mono text-[9px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                            FLOW RACK
-                        </span>
-                    </div>
-                    <ArrowRight size={14} className="text-gray-600 group-hover:text-amber-400 transition-colors" />
-                </div>
+    const rackBins = lane.bins.map((b) => ({
+        level: b.level,
+        position: b.position,
+        occupied: !!b.occupied,
+        expiring: false,
+    }));
 
-                {/* Flow direction visual */}
-                <div className="space-y-0.5 mb-2">
-                    {[...Array(Math.min(lane.levels, 3))].map((_, idx) => {
-                        const level = lane.levels - idx;
-                        const slots = lane.bins.filter((b) => b.level === level);
-                        return (
-                            <div key={level} className="flex gap-0.5 items-center">
-                                <div className="w-5 font-mono text-[8px] text-gray-600 text-right">
-                                    LV{level}
-                                </div>
-                                {slots.map((s, si) => (
-                                    <div
-                                        key={s.id}
-                                        className={`flex-1 h-3.5 ${
-                                            s.occupied
-                                                ? "bg-emerald-500/70 border border-emerald-500"
-                                                : "bg-white/5 border border-white/10"
-                                        } ${si === slots.length - 1 ? "border-r-amber-400 border-r" : ""}`}
-                                        title={s.code}
-                                    />
-                                ))}
-                            </div>
-                        );
-                    })}
-                    <div className="flex gap-0.5 items-center mt-1">
-                        <div className="w-5" />
-                        <div className="flex-1 flex justify-between font-mono text-[8px] text-gray-600">
-                            <span className="text-gray-600">LOAD REAR →</span>
-                            <span className="text-amber-400">→ EXIT/PICK</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex items-center justify-between font-mono text-[10px]">
-                    <span className="text-gray-400">{lane.filled_slots}/{lane.total_slots} pallets</span>
-                    <span className={pct < 40 ? "text-emerald-400" : pct < 80 ? "text-amber-400" : "text-red-400"}>
-                        {pct}%
-                    </span>
-                </div>
-            </button>
-        );
-    }
+    const borderCls = isFlow
+        ? "border-amber-500/20 hover:border-amber-500/60"
+        : "border-white/10 hover:border-amber-500/50";
 
     return (
         <button
             onClick={onClick}
             data-testid={`lane-${lane.row}-${lane.lane_number}`}
-            className="text-left bg-[#0d0e12] border border-white/10 hover:border-amber-500/50 transition-colors p-3 group"
+            className={`text-left bg-[#0d0e12] border transition-colors p-3 group ${borderCls}`}
         >
+            {/* ── Header ── */}
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                     <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">Lane</div>
-                    <div className="font-mono text-amber-400 font-bold">L{String(lane.lane_number).padStart(2, "0")}</div>
-                    <span className="font-mono text-[9px] px-1.5 py-0.5 bg-white/5 text-gray-400">
-                        TYPE {lane.rack_type}
-                    </span>
+                    <div className="font-mono text-amber-400 font-bold">
+                        L{String(lane.lane_number).padStart(2, "0")}
+                    </div>
+                    {isFlow ? (
+                        <span className="font-mono text-[9px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            FLOW RACK
+                        </span>
+                    ) : (
+                        <span className="font-mono text-[9px] px-1.5 py-0.5 bg-white/5 text-gray-400">
+                            TYPE {lane.rack_type}
+                        </span>
+                    )}
                 </div>
                 <ArrowRight size={14} className="text-gray-600 group-hover:text-amber-400 transition-colors" />
             </div>
 
-            <div className="space-y-1 mb-2">
-                {[...Array(lane.levels)].map((_, idx) => {
-                    const level = lane.levels - idx;
-                    const slots = lane.bins.filter((b) => b.level === level);
-                    return (
-                        <div key={level} className="flex gap-0.5 items-center">
-                            <div className="w-5 font-mono text-[8px] text-gray-600 text-right">LV{level}</div>
-                            {slots.map((s) => (
-                                <div
-                                    key={s.id}
-                                    className={`flex-1 h-4 ${
-                                        s.occupied
-                                            ? "bg-emerald-500/70 border border-emerald-500"
-                                            : "bg-white/5 border border-white/10"
-                                    }`}
-                                    title={s.code}
-                                />
-                            ))}
-                        </div>
-                    );
-                })}
-                <div className="flex gap-0.5 items-center mt-1">
-                    <div className="w-5"></div>
-                    <div className="flex-1 flex justify-between font-mono text-[8px] text-gray-600">
-                        <span>← AISLE ENTRY</span>
-                        <span>DEPTH {lane.depth} →</span>
-                    </div>
-                </div>
+            {/* ── Rack elevation drawing ── */}
+            <div className="mb-2 overflow-hidden">
+                <RackElevationSVG
+                    levels={lane.levels}
+                    depth={lane.depth}
+                    bins={rackBins}
+                    weightCapacityKg={lane.weight_capacity_kg || 1000}
+                    compact
+                />
             </div>
 
+            {/* ── Direction hint ── */}
+            <div className="flex justify-between font-mono text-[8px] text-gray-600 mb-2 px-0.5">
+                {isFlow ? (
+                    <>
+                        <span>LOAD REAR →</span>
+                        <span className="text-amber-400">→ EXIT/PICK</span>
+                    </>
+                ) : (
+                    <>
+                        <span>← AISLE</span>
+                        <span>DEPTH {lane.depth} →</span>
+                    </>
+                )}
+            </div>
+
+            {/* ── Stats ── */}
             <div className="flex items-center justify-between font-mono text-[10px]">
                 <span className="text-gray-400">{lane.filled_slots}/{lane.total_slots} pallets</span>
                 <span className={pct < 40 ? "text-emerald-400" : pct < 80 ? "text-amber-400" : "text-red-400"}>
