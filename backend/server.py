@@ -1597,6 +1597,29 @@ async def seed_data():
                         })
         await db.locations.insert_many(locs)
 
+    # Shuttle zone locations (SHUTTLE_ZONE_A): 7 lanes × 5 levels × 50 deep
+    if await db.locations.count_documents({"zone": SHUTTLE_ZONE}) == 0:
+        shuttle_locs = []
+        for lane in range(1, 8):          # lanes 1-7
+            for level in range(0, 5):     # levels 0-4
+                for depth in range(1, 51):  # depth 1-50
+                    shuttle_locs.append({
+                        "id": str(uuid.uuid4()),
+                        "code": _shuttle_code(lane, level, depth),
+                        "zone": SHUTTLE_ZONE,
+                        "zone_name": "Shuttle FIFO — Cold Storage",
+                        "temperature": -20,
+                        "rack_type": "shuttle",
+                        "lane_number": lane,
+                        "level": level,
+                        "position": depth,
+                        "depth": 50,
+                        "levels": 5,
+                        "capacity": 1,
+                        "occupied": 0,
+                    })
+        await db.locations.insert_many(shuttle_locs)
+
     # Cold-storage SKUs (frozen products)
     if await db.skus.count_documents({}) == 0:
         catalog = [
