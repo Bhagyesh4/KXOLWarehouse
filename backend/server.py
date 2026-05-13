@@ -1523,6 +1523,16 @@ async def seed_data():
         ("MANAGER_EMAIL", "MANAGER_PASSWORD", "Warehouse Manager", "manager"),
         ("OPERATOR_EMAIL", "OPERATOR_PASSWORD", "Floor Operator", "operator"),
     ]
+    # Additional named users via ADMIN2_*, ADMIN3_*, etc.
+    for i in range(2, 10):
+        em = os.environ.get(f"ADMIN{i}_EMAIL", "").lower()
+        if not em:
+            break
+        pw = os.environ.get(f"ADMIN{i}_PASSWORD", "")
+        name = os.environ.get(f"ADMIN{i}_NAME", f"User {i}")
+        role = os.environ.get(f"ADMIN{i}_ROLE", "operator")
+        users_seed.append((f"ADMIN{i}_EMAIL", f"ADMIN{i}_PASSWORD", name, role))
+
     for em_key, pw_key, name, role in users_seed:
         em = os.environ.get(em_key, "").lower()
         pw = os.environ.get(pw_key, "")
