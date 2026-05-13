@@ -22,6 +22,9 @@ OPERATOR_PASSWORD = "Operator123!"
 CORS_ORIGINS = "*"
 BACKEND_PORT = "8000"
 REACT_APP_BACKEND_URL = ""
+ADMIN2_EMAIL = "bhagyesh@excellenceconsultant.in"
+ADMIN2_NAME = "Admin"
+ADMIN2_ROLE = "admin"
 
 [workflows]
 runButton = "Project"
