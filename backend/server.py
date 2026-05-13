@@ -1464,6 +1464,29 @@ CATEGORY DISTRIBUTION:
 
 
 # ════════════════════════════════════════════════════
+# ADMIN — DATA MANAGEMENT
+# ════════════════════════════════════════════════════
+
+@api.post("/admin/purge-data")
+async def purge_data(user: dict = Depends(require_role("admin"))):
+    """Delete all transactional data (SKUs, stock, orders, movements).
+    Zones, locations and users are preserved. Occupied counts are reset."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM shuttle_movements")
+            await conn.execute("DELETE FROM movements")
+            await conn.execute("DELETE FROM stock")
+            await conn.execute("DELETE FROM inbound_items")
+            await conn.execute("DELETE FROM inbound")
+            await conn.execute("DELETE FROM outbound_items")
+            await conn.execute("DELETE FROM outbound")
+            await conn.execute("DELETE FROM skus")
+            await conn.execute("UPDATE locations SET occupied = 0")
+    return {"ok": True, "message": "All transactional data purged. Zones, locations and users preserved."}
+
+
+# ════════════════════════════════════════════════════
 # SEED DATA
 # ════════════════════════════════════════════════════
 
