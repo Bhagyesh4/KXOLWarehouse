@@ -11,6 +11,7 @@ import Outbound from "./pages/Outbound";
 import Storage from "./pages/Storage";
 import ShuttleZone from "./pages/ShuttleZone";
 import Reports from "./pages/Reports";
+import Admin from "./pages/Admin";
 import PrintGRN from "./pages/PrintGRN";
 import PrintPickList from "./pages/PrintPickList";
 import PrintPalletLabels from "./pages/PrintPalletLabels";
@@ -62,6 +63,7 @@ export default function App() {
                         <Route path="/storage" element={<Storage />} />
                         <Route path="/shuttle" element={<ShuttleZone />} />
                         <Route path="/reports" element={<Reports />} />
+                        <Route path="/admin" element={<Admin />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

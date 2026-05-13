@@ -10,6 +10,7 @@ import {
     LogOut,
     Warehouse,
     Zap,
+    ShieldAlert,
 } from "lucide-react";
 
 const NAV = [
@@ -20,6 +21,10 @@ const NAV = [
     { to: "/storage", label: "Warehouse Storage", icon: Boxes, testid: "nav-storage" },
     { to: "/shuttle", label: "Shuttle FIFO Zone", icon: Zap, testid: "nav-shuttle" },
     { to: "/reports", label: "Reports & Analytics", icon: BarChart3, testid: "nav-reports" },
+];
+
+const ADMIN_NAV = [
+    { to: "/admin", label: "Admin Settings", icon: ShieldAlert, testid: "nav-admin" },
 ];
 
 export default function Layout() {
@@ -49,7 +54,7 @@ export default function Layout() {
                     </div>
                 </div>
 
-                <nav className="flex-1 py-4 px-2 space-y-0.5">
+                <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
                     {NAV.map((n) => (
                         <NavLink
                             key={n.to}
@@ -68,6 +73,33 @@ export default function Layout() {
                             <span className="tracking-wide">{n.label}</span>
                         </NavLink>
                     ))}
+
+                    {user?.role === "admin" && (
+                        <>
+                            <div className="pt-3 pb-1 px-3">
+                                <div className="text-[10px] uppercase tracking-[0.15em] text-gray-600 font-semibold">
+                                    Administration
+                                </div>
+                            </div>
+                            {ADMIN_NAV.map((n) => (
+                                <NavLink
+                                    key={n.to}
+                                    to={n.to}
+                                    data-testid={n.testid}
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-3 px-3 py-2.5 text-sm transition-colors duration-150 ${
+                                            isActive
+                                                ? "bg-red-500/10 text-red-400 border-l-2 border-red-500"
+                                                : "text-gray-500 hover:bg-white/5 hover:text-gray-100 border-l-2 border-transparent"
+                                        }`
+                                    }
+                                >
+                                    <n.icon size={16} strokeWidth={2} />
+                                    <span className="tracking-wide">{n.label}</span>
+                                </NavLink>
+                            ))}
+                        </>
+                    )}
                 </nav>
 
                 <div className="border-t border-white/10 p-4">
