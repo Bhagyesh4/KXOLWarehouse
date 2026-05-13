@@ -595,11 +595,15 @@ async def parse_blueprint(
     if not text.strip():
         raise HTTPException(400, "Could not extract text from blueprint")
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        chat = LlmChat(
-            api_key=os.environ["EMERGENT_LLM_KEY"],
-            session_id=f"bp-parse-{user['id']}-{uuid.uuid4()}",
-            system_message=(
+        import anthropic as _anthropic
+        _client = _anthropic.Anthropic(
+            api_key=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", ""),
+            base_url=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        )
+        _resp = _client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=(
                 "You are a warehouse blueprint analyst. Extract rack/lane configuration from the blueprint text "
                 "and return STRICT JSON only (no prose, no markdown). Schema: "
                 '{"zone_name": "string", "temperature": number_celsius, "rows": ['
@@ -608,9 +612,9 @@ async def parse_blueprint(
                 "If a field is unclear, infer reasonable defaults (levels=4, depth=4, weight_kg=8000). "
                 "If the blueprint mentions cold storage temperature use it; otherwise use 22 (ambient)."
             ),
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        msg = UserMessage(text=f"BLUEPRINT TEXT:\n\n{text[:8000]}")
-        response = await chat.send_message(msg)
+            messages=[{"role": "user", "content": f"BLUEPRINT TEXT:\n\n{text[:8000]}"}],
+        )
+        response = _resp.content[0].text
         cleaned = response.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.split("```")[1]
@@ -1445,18 +1449,23 @@ CATEGORY DISTRIBUTION:
 {chr(10).join([f"  - {c['category']}: {c['count']} SKUs, {c['stock']} units" for c in cats])}
 """
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        chat = LlmChat(
-            api_key=os.environ["EMERGENT_LLM_KEY"],
-            session_id=f"wms-insights-{user['id']}",
-            system_message=(
+        import anthropic as _anthropic
+        _client = _anthropic.Anthropic(
+            api_key=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", ""),
+            base_url=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        )
+        _resp = _client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=(
                 "You are a senior cold-chain warehouse operations analyst overseeing a -20°C drive-in racking facility (LIFO). "
                 "Analyze the snapshot and produce a sharp, tactical report with: 1) a 2-line executive summary, "
                 "2) 3 prioritized actionable insights (with bullet markers '>'), 3) a brief risk assessment. "
                 "Use crisp, technical language. Format output as plain text with section headers in CAPS. Keep total under 220 words."
             ),
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        response = await chat.send_message(UserMessage(text=context))
+            messages=[{"role": "user", "content": context}],
+        )
+        response = _resp.content[0].text
         return {"insights": response, "generated_at": now_iso()}
     except Exception as e:
         logging.exception("AI insights failed")
