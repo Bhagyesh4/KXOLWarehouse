@@ -1470,7 +1470,8 @@ CATEGORY DISTRIBUTION:
 @api.post("/admin/purge-data")
 async def purge_data(user: dict = Depends(require_role("admin"))):
     """Delete all transactional data (SKUs, stock, orders, movements).
-    Zones, locations and users are preserved. Occupied counts are reset."""
+    Zones, locations and users are preserved. Occupied counts are reset.
+    Sets seed_locked flag so seed_data() does not re-populate on next restart."""
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -1483,6 +1484,10 @@ async def purge_data(user: dict = Depends(require_role("admin"))):
             await conn.execute("DELETE FROM outbound")
             await conn.execute("DELETE FROM skus")
             await conn.execute("UPDATE locations SET occupied = 0")
+            await conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('seed_locked', '1') "
+                "ON CONFLICT (key) DO UPDATE SET value = '1'"
+            )
     return {"ok": True, "message": "All transactional data purged. Zones, locations and users preserved."}
 
 
@@ -1616,8 +1621,9 @@ async def seed_data():
                 )
 
         # ── SKUs + initial stock ─────────────────────────────────────
+        seed_locked = await conn.fetchval("SELECT value FROM app_meta WHERE key='seed_locked'")
         sku_cnt = await conn.fetchval("SELECT COUNT(*) FROM skus")
-        if sku_cnt == 0:
+        if sku_cnt == 0 and not seed_locked:
             catalog = [
                 ("FRZ-MEAT-001","Frozen Beef Sirloin 20kg","Frozen Meat","PLT",480.00,4),
                 ("FRZ-MEAT-002","Frozen Chicken Breast 25kg","Frozen Meat","PLT",320.00,5),
@@ -1712,7 +1718,7 @@ async def seed_data():
 
         # ── Sample inbound orders ────────────────────────────────────
         inb_cnt = await conn.fetchval("SELECT COUNT(*) FROM inbound")
-        if inb_cnt == 0:
+        if inb_cnt == 0 and not seed_locked:
             skus_db = await conn.fetch("SELECT id FROM skus")
             free_locs = list(await conn.fetch(
                 "SELECT id FROM locations WHERE occupied < capacity ORDER BY id"
@@ -1743,7 +1749,7 @@ async def seed_data():
 
         # ── Sample outbound orders ───────────────────────────────────
         out_cnt = await conn.fetchval("SELECT COUNT(*) FROM outbound")
-        if out_cnt == 0:
+        if out_cnt == 0 and not seed_locked:
             skus_db = await conn.fetch("SELECT id FROM skus")
             customers = ["Metro Supermarkets","FreshMart Chain","ColdLink Retail","OmegaFoods","GroceryPro Inc"]
             statuses = ["pending","picking","packing","shipped"]
