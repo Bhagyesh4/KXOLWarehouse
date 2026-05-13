@@ -1,20 +1,19 @@
 #!/bin/bash
 
+# Install backend dependencies
+echo "Installing backend dependencies..."
+pip install -r /home/runner/workspace/backend/requirements.txt -q --disable-pip-version-check
+
 # Start the FastAPI backend in background
 echo "Starting backend..."
 cd /home/runner/workspace/backend
-JWT_SECRET=wms-super-secret-jwt-key-2024 \
-    ADMIN_EMAIL=admin@wms.com ADMIN_PASSWORD=Admin123! \
-    MANAGER_EMAIL=manager@wms.com MANAGER_PASSWORD=Manager123! \
-    OPERATOR_EMAIL=operator@wms.com OPERATOR_PASSWORD=Operator123! \
-    CORS_ORIGINS="*" \
-    python3 -m uvicorn server:app --host 127.0.0.1 --port 8000 &
+python3 -m uvicorn server:app --host 127.0.0.1 --port 8000 &
 
 cd /home/runner/workspace
 
 # Wait for backend to be ready
 echo "Waiting for backend..."
-for i in $(seq 1 45); do
+for i in $(seq 1 60); do
     python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1', 8000)); s.close()" 2>/dev/null && echo "Backend ready!" && break
     sleep 1
 done
