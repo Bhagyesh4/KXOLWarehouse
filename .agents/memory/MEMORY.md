@@ -1,0 +1,2 @@
+- [Seed password env vars](seed-passwords.md) — ADMIN/MANAGER/OPERATOR_PASSWORD must be secrets or seeding overwrites hashes with empty-string hashes on restart
+- [Frontend deps at workspace root](frontend-deps.md) — all frontend npm packages installed at workspace root (not frontend/node_modules); ajv v6 conflict fixed by removing it from frontend/node_modules so ajv v8 at root takes precedence
