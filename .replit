@@ -20,6 +20,7 @@ REACT_APP_BACKEND_URL = ""
 ADMIN2_EMAIL = "bhagyesh@excellenceconsultant.in"
 ADMIN2_NAME = "Admin"
 ADMIN2_ROLE = "admin"
+MONGO_URL = "mongodb://localhost:27017"
 
 [workflows]
 runButton = "Project"
