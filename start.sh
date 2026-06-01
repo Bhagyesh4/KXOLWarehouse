@@ -22,7 +22,11 @@ done
 echo "Starting port 3000 proxy..."
 node /home/runner/workspace/proxy3000.js &
 
+# Install frontend dependencies (ensures correct versions are present)
+echo "Installing frontend dependencies..."
+cd /home/runner/workspace/frontend
+npm install --legacy-peer-deps --quiet 2>&1 | tail -5
+
 # Start the frontend on port 5000
 echo "Starting frontend..."
-cd /home/runner/workspace/frontend
 PORT=5000 REACT_APP_BACKEND_URL="" BROWSER=none DANGEROUSLY_DISABLE_HOST_CHECK=true yarn start
