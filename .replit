@@ -11,15 +11,9 @@ packages = ["cargo", "glibcLocales", "libiconv", "libxcrypt", "rustc"]
 [userenv]
 
 [userenv.shared]
-MONGO_URL = "mongodb://localhost:27017"
-DB_NAME = "wms_db"
-JWT_SECRET = "wms-super-secret-jwt-key-2024"
 ADMIN_EMAIL = "admin@wms.com"
-ADMIN_PASSWORD = "Admin123!"
 MANAGER_EMAIL = "manager@wms.com"
-MANAGER_PASSWORD = "Manager123!"
 OPERATOR_EMAIL = "operator@wms.com"
-OPERATOR_PASSWORD = "Operator123!"
 CORS_ORIGINS = "*"
 BACKEND_PORT = "8000"
 REACT_APP_BACKEND_URL = ""
