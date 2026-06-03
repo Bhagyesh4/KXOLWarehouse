@@ -84,8 +84,11 @@ CREATE TABLE IF NOT EXISTS stock (
     expiry_date      TEXT,
     received_date    TEXT,
     pallet_code      TEXT,
+    bag_color        VARCHAR(50),
     ref              TEXT
 );
+
+ALTER TABLE stock ADD COLUMN IF NOT EXISTS bag_color VARCHAR(50);
 
 CREATE INDEX IF NOT EXISTS idx_stock_loc  ON stock(location_id);
 CREATE INDEX IF NOT EXISTS idx_stock_sku  ON stock(sku_id);

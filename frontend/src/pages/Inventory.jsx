@@ -19,13 +19,18 @@ export default function Inventory() {
     const [stockDetail, setStockDetail] = useState([]);
     const [scanOpen, setScanOpen] = useState(false);
     const [colorFilter, setColorFilter] = useState(null);
+    const [stockByColor, setStockByColor] = useState([]);
 
     const canEdit = user?.role === "admin" || user?.role === "manager";
     const canDelete = user?.role === "admin";
 
     const load = async () => {
-        const r = await api.get(`/inventory/skus${q ? `?q=${encodeURIComponent(q)}` : ""}`);
-        setSkus(r.data);
+        const [skuRes, colorRes] = await Promise.all([
+            api.get(`/inventory/skus${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+            api.get("/inventory/stock-by-color"),
+        ]);
+        setSkus(skuRes.data);
+        setStockByColor(colorRes.data);
     };
 
     useEffect(() => {
@@ -59,20 +64,46 @@ export default function Inventory() {
         return { label: "In Stock", cls: "border-emerald-500/40 text-emerald-400 bg-emerald-500/10" };
     };
 
-    const colorKey = (s) => (BAG_COLORS.includes(s.bag_color) ? s.bag_color : UNSPECIFIED);
+    const normColor = (c) => (BAG_COLORS.includes(c) ? c : UNSPECIFIED);
 
+    // Map each SKU to the set of bag colors it actually holds on-hand, derived
+    // from real stock (not the SKU's default color).
+    const skuColors = (() => {
+        const map = {};
+        for (const r of stockByColor) {
+            if (!(r.on_hand > 0)) continue;
+            const key = normColor(r.bag_color);
+            (map[r.sku_id] = map[r.sku_id] || new Set()).add(key);
+        }
+        return map;
+    })();
+
+    // On-hand units + distinct SKU count per actual bag color.
     const breakdown = (() => {
         const groups = {};
-        for (const c of [...BAG_COLORS, UNSPECIFIED]) groups[c] = { count: 0, onHand: 0 };
-        for (const s of skus) {
-            const g = groups[colorKey(s)];
-            g.count += 1;
-            g.onHand += s.total_stock || 0;
+        for (const c of [...BAG_COLORS, UNSPECIFIED]) groups[c] = { count: 0, onHand: 0, skus: new Set() };
+        for (const r of stockByColor) {
+            if (!(r.on_hand > 0)) continue;
+            const g = groups[normColor(r.bag_color)];
+            g.onHand += r.on_hand;
+            g.skus.add(r.sku_id);
         }
+        for (const c of Object.keys(groups)) groups[c].count = groups[c].skus.size;
         return groups;
     })();
 
-    const visibleSkus = colorFilter ? skus.filter((s) => colorKey(s) === colorFilter) : skus;
+    const visibleSkus = colorFilter
+        ? skus.filter((s) => skuColors[s.id]?.has(colorFilter))
+        : skus;
+
+    // Colors shown in a SKU's row. When the SKU has stock on hand we show the
+    // actual stock colors (empty when that stock is unspecified). Only when the
+    // SKU has no stock at all do we fall back to its catalog default color.
+    const rowColors = (s) => {
+        const set = skuColors[s.id];
+        if (set) return [...set].filter((c) => c !== UNSPECIFIED);
+        return BAG_COLORS.includes(s.bag_color) ? [s.bag_color] : [];
+    };
 
     return (
         <div className="space-y-5">
@@ -206,13 +237,17 @@ export default function Inventory() {
                                     <td className="py-3 px-4">{s.name}</td>
                                     <td className="py-3 px-4 text-gray-400">{s.category}</td>
                                     <td className="py-3 px-4 text-gray-400">
-                                        {s.bag_color ? (
-                                            <span className="inline-flex items-center gap-2">
-                                                <span
-                                                    className="inline-block w-2.5 h-2.5 rounded-full border border-white/30"
-                                                    style={{ backgroundColor: BAG_COLOR_HEX[s.bag_color] || "#6b7280" }}
-                                                />
-                                                {s.bag_color}
+                                        {rowColors(s).length ? (
+                                            <span className="inline-flex items-center gap-3 flex-wrap">
+                                                {rowColors(s).map((c) => (
+                                                    <span key={c} className="inline-flex items-center gap-2">
+                                                        <span
+                                                            className="inline-block w-2.5 h-2.5 rounded-full border border-white/30"
+                                                            style={{ backgroundColor: BAG_COLOR_HEX[c] || "#6b7280" }}
+                                                        />
+                                                        {c}
+                                                    </span>
+                                                ))}
                                             </span>
                                         ) : (
                                             "—"

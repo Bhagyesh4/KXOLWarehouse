@@ -354,6 +354,19 @@ async def list_skus(q: Optional[str] = None, category: Optional[str] = None, use
     return _db.rl(rows)
 
 
+@api.get("/inventory/stock-by-color")
+async def stock_by_color(user: dict = Depends(get_user)):
+    """On-hand quantity grouped per SKU and actual bag color, used to build the
+    'Inventory by Bag Color' breakdown in the Inventory Master."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT sku_id, bag_color, SUM(qty)::int AS on_hand "
+            "FROM stock WHERE qty > 0 GROUP BY sku_id, bag_color"
+        )
+    return _db.rl(rows)
+
+
 @api.post("/inventory/skus")
 async def create_sku(body: SkuIn, user: dict = Depends(require_role("admin", "manager"))):
     _validate_sku_fields(body)
@@ -1152,9 +1165,18 @@ async def create_inbound(body: InboundIn, user: dict = Depends(require_role("adm
 async def _execute_receive(conn, order: dict) -> None:
     received_at = now_iso()
     for item in order["items"]:
+        # Actual bag color received on this line; fall back to the SKU default
+        # so on-hand stock is always attributed to a color when one is known.
+        color = item.get("bag_color")
+        if not color:
+            sku_def = await conn.fetchrow("SELECT bag_color FROM skus WHERE id=$1", item["sku_id"])
+            color = sku_def["bag_color"] if sku_def else None
+        # Match on color too, so pallets of different colors at the same
+        # SKU/location stay as separate, correctly-coloured stock rows.
         existing = await conn.fetchrow(
-            "SELECT id, qty FROM stock WHERE sku_id=$1 AND location_id=$2",
-            item["sku_id"], item["location_id"],
+            "SELECT id, qty FROM stock WHERE sku_id=$1 AND location_id=$2 "
+            "AND COALESCE(bag_color,'')=COALESCE($3,'')",
+            item["sku_id"], item["location_id"], color,
         )
         if existing:
             await conn.execute(
@@ -1166,10 +1188,10 @@ async def _execute_receive(conn, order: dict) -> None:
         else:
             await conn.execute(
                 "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, "
-                "expiry_date, received_date, ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                "expiry_date, received_date, bag_color, ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
                 str(uuid.uuid4()), item["sku_id"], item["location_id"], item["qty"],
                 item.get("batch_no"), item.get("manufacture_date"),
-                item.get("expiry_date"), received_at, order["po_number"],
+                item.get("expiry_date"), received_at, color, order["po_number"],
             )
         await conn.execute(
             "UPDATE skus SET total_stock = total_stock + $1 WHERE id=$2", item["qty"], item["sku_id"]
@@ -1939,6 +1961,30 @@ async def seed_data():
                 "dimensions=COALESCE(dimensions,$3) WHERE id=$4",
                 _to_decimal(wpb), bpp, dims, s["id"],
             )
+
+        # ── Backfill stock.bag_color for rows received before the column ──
+        # existed. Prefer the actual colour recorded on the originating inbound
+        # line (matched via PO ref + sku + location). To stay deterministic we
+        # only backfill when the candidate lines agree on a SINGLE colour;
+        # ambiguous matches (e.g. a PO with mixed colours for the same
+        # SKU/location, or a reused PO number) are left NULL rather than guessed.
+        await conn.execute(
+            "UPDATE stock s SET bag_color = c.color FROM ("
+            "  SELECT s2.id AS stock_id, MIN(ii.bag_color) AS color "
+            "  FROM stock s2 "
+            "  JOIN inbound i ON s2.ref = i.po_number "
+            "  JOIN inbound_items ii ON ii.inbound_id = i.id "
+            "    AND ii.sku_id = s2.sku_id AND ii.location_id = s2.location_id "
+            "  WHERE s2.bag_color IS NULL AND ii.bag_color IS NOT NULL "
+            "  GROUP BY s2.id HAVING COUNT(DISTINCT ii.bag_color) = 1"
+            ") c WHERE s.id = c.stock_id"
+        )
+        # Remaining gaps fall back to the SKU's default colour, if it has one.
+        await conn.execute(
+            "UPDATE stock s SET bag_color = sk.bag_color "
+            "FROM skus sk WHERE s.bag_color IS NULL AND sk.id = s.sku_id "
+            "AND sk.bag_color IS NOT NULL"
+        )
 
         # ── Sample inbound orders ────────────────────────────────────
         inb_cnt = await conn.fetchval("SELECT COUNT(*) FROM inbound")
