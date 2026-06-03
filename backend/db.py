@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS inbound_items (
     qty              INT NOT NULL,
     location_id      TEXT NOT NULL,
     barcode          TEXT,
+    bag_color        VARCHAR(50),
     batch_no         TEXT,
     manufacture_date TEXT,
     expiry_date      TEXT,
@@ -130,6 +131,8 @@ CREATE TABLE IF NOT EXISTS inbound_items (
     confirmed_at     TEXT,
     confirmed_by     TEXT
 );
+
+ALTER TABLE inbound_items ADD COLUMN IF NOT EXISTS bag_color VARCHAR(50);
 
 CREATE INDEX IF NOT EXISTS idx_ii_order ON inbound_items(inbound_id);
 

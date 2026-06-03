@@ -136,6 +136,7 @@ class InboundItemIn(BaseModel):
     sku_id: str
     qty: int
     location_id: str
+    bag_color: Optional[str] = None
     batch_no: Optional[str] = None
     manufacture_date: Optional[str] = None
     expiry_date: Optional[str] = None
@@ -1112,23 +1113,26 @@ async def create_inbound(body: InboundIn, user: dict = Depends(require_role("adm
         item_rows = []
         items_out = []
         for idx, item in enumerate(body.items):
+            bag_color = item.bag_color.strip() if item.bag_color and item.bag_color.strip() else None
+            if bag_color is not None and bag_color not in BAG_COLORS:
+                raise HTTPException(status_code=400, detail=f"Bag color must be one of {sorted(BAG_COLORS)}")
             iid = str(uuid.uuid4())
             barcode = item.barcode or f"PLT-{body.po_number.replace(' ','-').upper()}-P{idx+1:02d}"
             item_rows.append((
                 iid, oid, item.sku_id, item.qty, item.location_id, barcode,
-                item.batch_no, item.manufacture_date, item.expiry_date, False, None, None,
+                bag_color, item.batch_no, item.manufacture_date, item.expiry_date, False, None, None,
             ))
             items_out.append({
                 "id": iid, "inbound_id": oid, "sku_id": item.sku_id, "qty": item.qty,
-                "location_id": item.location_id, "barcode": barcode,
+                "location_id": item.location_id, "barcode": barcode, "bag_color": bag_color,
                 "batch_no": item.batch_no, "manufacture_date": item.manufacture_date,
                 "expiry_date": item.expiry_date, "putaway_confirmed": False,
                 "confirmed_at": None, "confirmed_by": None,
             })
         await conn.executemany(
             "INSERT INTO inbound_items (id, inbound_id, sku_id, qty, location_id, barcode, "
-            "batch_no, manufacture_date, expiry_date, putaway_confirmed, confirmed_at, confirmed_by) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+            "bag_color, batch_no, manufacture_date, expiry_date, putaway_confirmed, confirmed_at, confirmed_by) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
             item_rows,
         )
     return {

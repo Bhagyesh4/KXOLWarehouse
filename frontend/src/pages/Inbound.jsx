@@ -16,20 +16,22 @@ import PutawayModal from "../components/PutawayModal";
 
 const BAG_COLOR_HEX = { Green: "#22c55e", White: "#e5e7eb", Yellow: "#eab308" };
 
-function BagMeta({ sku }) {
-    if (!sku || (!sku.bag_color && sku.bags_per_pallet == null)) return null;
+function BagMeta({ sku, color }) {
+    const bagColor = color || sku?.bag_color;
+    const bagsPerPallet = sku?.bags_per_pallet;
+    if (!bagColor && bagsPerPallet == null) return null;
     return (
         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500 font-mono">
-            {sku.bag_color && (
+            {bagColor && (
                 <span className="flex items-center gap-1">
                     <span
                         className="inline-block w-2 h-2 rounded-full border border-white/20"
-                        style={{ backgroundColor: BAG_COLOR_HEX[sku.bag_color] || "#6b7280" }}
+                        style={{ backgroundColor: BAG_COLOR_HEX[bagColor] || "#6b7280" }}
                     />
-                    {sku.bag_color}
+                    {bagColor}
                 </span>
             )}
-            {sku.bags_per_pallet != null && <span>{sku.bags_per_pallet} bags/plt</span>}
+            {bagsPerPallet != null && <span>{bagsPerPallet} bags/plt</span>}
         </div>
     );
 }
@@ -236,7 +238,7 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
                                             </span>
                                             <span className="text-amber-400 ml-2">{it.qty}</span>
                                         </div>
-                                        <BagMeta sku={skuMap[it.sku_id]} />
+                                        <BagMeta sku={skuMap[it.sku_id]} color={it.bag_color} />
                                     </div>
                                 ))}
                             </div>
@@ -324,6 +326,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                 sku_id: "",
                 qty: 1,
                 location_id: "",
+                bag_color: "",
                 batch_no: "",
                 manufacture_date: "",
                 expiry_date: "",
@@ -360,6 +363,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                     sku_id: "",
                     qty: 1,
                     location_id: "",
+                    bag_color: "",
                     batch_no: "",
                     manufacture_date: "",
                     expiry_date: "",
@@ -370,6 +374,15 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
     const updateRow = (i, k, v) => {
         const items = [...form.items];
         items[i] = { ...items[i], [k]: v };
+        setForm({ ...form, items });
+    };
+
+    const selectSku = (i, skuId) => {
+        const sku = skus.find((s) => s.id === skuId);
+        const items = [...form.items];
+        const row = { ...items[i], sku_id: skuId };
+        if (!row.bag_color && sku?.bag_color) row.bag_color = sku.bag_color;
+        items[i] = row;
         setForm({ ...form, items });
     };
 
@@ -448,7 +461,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                                             data-testid={`inbound-item-sku-${i}`}
                                             value={it.sku_id}
                                             onChange={(e) =>
-                                                updateRow(i, "sku_id", e.target.value)
+                                                selectSku(i, e.target.value)
                                             }
                                             className="col-span-5 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
                                         >
@@ -502,7 +515,31 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                                             <X size={14} />
                                         </button>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-2">
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <div className="relative">
+                                            {it.bag_color && (
+                                                <span
+                                                    aria-hidden="true"
+                                                    className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-white/30"
+                                                    style={{ backgroundColor: BAG_COLOR_HEX[it.bag_color] || "#6b7280" }}
+                                                />
+                                            )}
+                                            <select
+                                                data-testid={`inbound-item-bag-color-${i}`}
+                                                value={it.bag_color || ""}
+                                                onChange={(e) =>
+                                                    updateRow(i, "bag_color", e.target.value)
+                                                }
+                                                className={`w-full bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono ${it.bag_color ? "pl-6" : ""}`}
+                                            >
+                                                <option value="">— Bag Color —</option>
+                                                {Object.keys(BAG_COLOR_HEX).map((c) => (
+                                                    <option key={c} value={c} style={{ color: BAG_COLOR_HEX[c] }}>
+                                                        {c}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                         <input
                                             data-testid={`inbound-item-batch-${i}`}
                                             value={it.batch_no}
