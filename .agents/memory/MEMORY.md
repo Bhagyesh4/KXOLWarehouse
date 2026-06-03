@@ -2,3 +2,4 @@
 - [Frontend deps at workspace root](frontend-deps.md) — all frontend npm packages installed at workspace root (not frontend/node_modules); ajv v6 conflict fixed by removing it from frontend/node_modules so ajv v8 at root takes precedence
 - [asyncpg schema evolution & types](asyncpg-schema-evolution.md) — adding a column needs CREATE TABLE edit + ALTER TABLE ADD COLUMN IF NOT EXISTS in db.py DDL; DECIMAL cols need Python Decimal, not float
 - [Local Postgres vs Replit-managed DB](local-postgres-vs-replit-db.md) — app uses local Postgres via DATABASE_URL; executeSql/database skill hit a DIFFERENT db. Use `psql "$DATABASE_URL"` to see real data
+- [Backend testing (pytest + hermetic FastAPI)](backend-testing.md) — install pytest via pip --target into .pythonlibs; test FastAPI in-process w/ TestClient (no `with`), override get_user + monkeypatch db.get_pool
