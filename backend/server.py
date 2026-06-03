@@ -5,18 +5,22 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import os
+import io
 import uuid
 import logging
 import asyncpg
 import bcrypt
 import jwt
 import random
+import openpyxl
+from openpyxl.styles import Font
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
 from fastapi import UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
 
@@ -132,6 +136,48 @@ def _validate_sku_fields(body: "SkuIn"):
 
 def _to_decimal(value):
     return Decimal(str(value)) if value is not None else None
+
+
+# ---------- Excel import / export of SKUs ----------
+# Editable SKU columns, in the order they appear in the spreadsheet. The export
+# additionally appends a read-only "On Hand" column (ignored on import).
+SKU_EXCEL_COLUMNS = [
+    ("sku_code", "SKU Code"),
+    ("name", "Name"),
+    ("category", "Category"),
+    ("bag_color", "Bag Color"),
+    ("weight_per_bag", "Weight per Bag"),
+    ("bags_per_pallet", "Bags per Pallet"),
+    ("dimensions", "Dimensions"),
+    ("unit", "Unit"),
+    ("unit_price", "Unit Price"),
+    ("reorder_level", "Reorder Level"),
+]
+
+
+def _excel_str(v):
+    if v is None:
+        return None
+    v = str(v).strip()
+    return v or None
+
+
+def _excel_float(v, field):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        raise HTTPException(400, f"'{field}' must be a number (got {v!r})")
+
+
+def _excel_int(v, field):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    try:
+        return int(float(v))
+    except (ValueError, TypeError):
+        raise HTTPException(400, f"'{field}' must be a whole number (got {v!r})")
 
 
 class InboundItemIn(BaseModel):
@@ -413,6 +459,167 @@ async def delete_sku(sku_id: str, user: dict = Depends(require_role("admin"))):
         await conn.execute("DELETE FROM stock WHERE sku_id = $1", sku_id)
         await conn.execute("DELETE FROM skus WHERE id = $1", sku_id)
     return {"ok": True}
+
+
+@api.get("/inventory/skus/export")
+async def export_skus(user: dict = Depends(get_user)):
+    """Download the full SKU catalog as an .xlsx workbook. The same column
+    layout can be re-uploaded via the import endpoint (the On Hand column is
+    read-only and ignored on import)."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM skus ORDER BY sku_code")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SKUs"
+    headers = [label for _, label in SKU_EXCEL_COLUMNS] + ["On Hand"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for r in rows:
+        d = dict(r)
+        line = []
+        for key, _ in SKU_EXCEL_COLUMNS:
+            v = d.get(key)
+            if isinstance(v, Decimal):
+                v = float(v)
+            line.append(v)
+        line.append(d.get("total_stock"))
+        ws.append(line)
+
+    for i, _ in enumerate(headers, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 18
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"skus_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.post("/inventory/skus/import")
+async def import_skus(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    """Upsert SKUs from an uploaded .xlsx file, matching rows to existing SKUs
+    by sku_code (create when new, update when found). Returns a per-row summary
+    so the operator can see what was created/updated and which rows failed."""
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(400, "Please upload an Excel .xlsx file")
+
+    data = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    except Exception:
+        raise HTTPException(400, "Could not read the file. Make sure it is a valid .xlsx workbook.")
+
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        header = next(rows_iter)
+    except StopIteration:
+        raise HTTPException(400, "The sheet is empty")
+
+    # Accept either the friendly header label or the raw field name.
+    label_to_key = {label.lower(): key for key, label in SKU_EXCEL_COLUMNS}
+    for key, _ in SKU_EXCEL_COLUMNS:
+        label_to_key[key.lower()] = key
+
+    col_index = {}
+    for idx, h in enumerate(header or []):
+        if h is None:
+            continue
+        norm = str(h).strip().lower()
+        if norm in label_to_key:
+            col_index[label_to_key[norm]] = idx
+
+    for required in ("sku_code", "name", "category"):
+        if required not in col_index:
+            label = dict(SKU_EXCEL_COLUMNS)[required]
+            raise HTTPException(400, f"Missing required column: {label}")
+
+    def cell_getter(raw):
+        def cell(key):
+            idx = col_index.get(key)
+            if idx is None or idx >= len(raw):
+                return None
+            return raw[idx]
+        return cell
+
+    created = 0
+    updated = 0
+    errors = []
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        for n, raw in enumerate(rows_iter, start=2):
+            if raw is None or all(c is None or str(c).strip() == "" for c in raw):
+                continue
+            cell = cell_getter(raw)
+            try:
+                payload = {
+                    "sku_code": _excel_str(cell("sku_code")),
+                    "name": _excel_str(cell("name")),
+                    "category": _excel_str(cell("category")),
+                    "bag_color": _excel_str(cell("bag_color")),
+                    "dimensions": _excel_str(cell("dimensions")),
+                    "unit": _excel_str(cell("unit")) or "EA",
+                    "weight_per_bag": _excel_float(cell("weight_per_bag"), "Weight per Bag"),
+                    "bags_per_pallet": _excel_int(cell("bags_per_pallet"), "Bags per Pallet"),
+                    "unit_price": _excel_float(cell("unit_price"), "Unit Price") or 0.0,
+                    "reorder_level": _excel_int(cell("reorder_level"), "Reorder Level"),
+                }
+                if not payload["sku_code"]:
+                    raise HTTPException(400, "SKU Code is required")
+                if not payload["name"]:
+                    raise HTTPException(400, "Name is required")
+                if not payload["category"]:
+                    raise HTTPException(400, "Category is required")
+                if payload["reorder_level"] is None:
+                    payload["reorder_level"] = 10
+
+                body = SkuIn(**payload)
+                _validate_sku_fields(body)
+
+                existing = await conn.fetchrow("SELECT id FROM skus WHERE sku_code = $1", body.sku_code)
+                if existing:
+                    await conn.execute(
+                        "UPDATE skus SET name=$1, category=$2, bag_color=$3, weight_per_bag=$4, "
+                        "bags_per_pallet=$5, dimensions=$6, unit=$7, unit_price=$8, reorder_level=$9 WHERE id=$10",
+                        body.name, body.category, body.bag_color, _to_decimal(body.weight_per_bag),
+                        body.bags_per_pallet, body.dimensions, body.unit, body.unit_price,
+                        body.reorder_level, existing["id"],
+                    )
+                    updated += 1
+                else:
+                    sid = str(uuid.uuid4())
+                    ts = now_iso()
+                    await conn.execute(
+                        "INSERT INTO skus (id, sku_code, name, category, bag_color, weight_per_bag, "
+                        "bags_per_pallet, dimensions, unit, unit_price, reorder_level, total_stock, created_at) "
+                        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+                        sid, body.sku_code, body.name, body.category, body.bag_color,
+                        _to_decimal(body.weight_per_bag), body.bags_per_pallet, body.dimensions,
+                        body.unit, body.unit_price, body.reorder_level, 0, ts,
+                    )
+                    created += 1
+            except HTTPException as e:
+                errors.append({"row": n, "sku_code": _excel_str(cell("sku_code")) or "", "error": e.detail})
+            except Exception as e:
+                errors.append({"row": n, "sku_code": _excel_str(cell("sku_code")) or "", "error": str(e)})
+
+    return {
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "total": created + updated + len(errors),
+    }
 
 
 @api.get("/inventory/categories")

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Barcode from "react-barcode";
-import { api } from "../lib/api";
-import { Search, Plus, X, Trash2, Edit3, ScanLine } from "lucide-react";
+import { api, formatErr } from "../lib/api";
+import { Search, Plus, X, Trash2, Edit3, ScanLine, Download, Upload } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Scanner from "../components/Scanner";
 
@@ -23,6 +23,53 @@ export default function Inventory() {
 
     const canEdit = user?.role === "admin" || user?.role === "manager";
     const canDelete = user?.role === "admin";
+
+    const fileRef = useRef(null);
+    const [exporting, setExporting] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [importResult, setImportResult] = useState(null);
+    const [msg, setMsg] = useState(null);
+
+    const onExport = async () => {
+        setExporting(true);
+        setMsg(null);
+        try {
+            const res = await api.get("/inventory/skus/export", { responseType: "blob" });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url;
+            const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+            a.download = `skus_${today}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (e) {
+            setMsg({ type: "error", text: formatErr(e.response?.data?.detail) || "Export failed" });
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const onImportFile = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+        setImporting(true);
+        setImportResult(null);
+        setMsg(null);
+        try {
+            const fd = new FormData();
+            fd.append("file", file);
+            const res = await api.post("/inventory/skus/import", fd);
+            setImportResult(res.data);
+            load();
+        } catch (er) {
+            setMsg({ type: "error", text: formatErr(er.response?.data?.detail) || "Import failed" });
+        } finally {
+            setImporting(false);
+        }
+    };
 
     const load = async () => {
         const [skuRes, colorRes] = await Promise.all([
@@ -134,6 +181,34 @@ export default function Inventory() {
                     >
                         <ScanLine size={14} /> Scan
                     </button>
+                    <button
+                        data-testid="export-skus-btn"
+                        onClick={onExport}
+                        disabled={exporting}
+                        className="flex items-center gap-2 border border-white/10 hover:border-amber-500/40 hover:text-amber-400 text-gray-300 px-4 py-2 text-sm font-bold uppercase tracking-wider disabled:opacity-50"
+                    >
+                        <Download size={14} /> {exporting ? "Exporting…" : "Export"}
+                    </button>
+                    {canEdit && (
+                        <>
+                            <input
+                                ref={fileRef}
+                                type="file"
+                                accept=".xlsx,.xlsm"
+                                onChange={onImportFile}
+                                className="hidden"
+                                data-testid="import-skus-input"
+                            />
+                            <button
+                                data-testid="import-skus-btn"
+                                onClick={() => fileRef.current?.click()}
+                                disabled={importing}
+                                className="flex items-center gap-2 border border-white/10 hover:border-amber-500/40 hover:text-amber-400 text-gray-300 px-4 py-2 text-sm font-bold uppercase tracking-wider disabled:opacity-50"
+                            >
+                                <Upload size={14} /> {importing ? "Importing…" : "Import"}
+                            </button>
+                        </>
+                    )}
                     {canEdit && (
                         <button
                             data-testid="add-sku-btn"
@@ -148,6 +223,22 @@ export default function Inventory() {
                     )}
                 </div>
             </div>
+
+            {msg && (
+                <div
+                    data-testid="inventory-msg"
+                    className={`border px-4 py-2 text-sm flex items-center justify-between ${
+                        msg.type === "error"
+                            ? "border-red-500/40 bg-red-500/10 text-red-300"
+                            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                    }`}
+                >
+                    <span>{msg.text}</span>
+                    <button onClick={() => setMsg(null)} className="text-gray-400 hover:text-white">
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
 
             <div>
                 <div className="flex items-center justify-between mb-2">
@@ -398,6 +489,79 @@ export default function Inventory() {
                     }}
                     onClose={() => setScanOpen(false)}
                 />
+            )}
+
+            {importResult && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+                    onClick={() => setImportResult(null)}
+                >
+                    <div
+                        data-testid="import-result-modal"
+                        className="bg-[#181a20] border border-white/10 max-w-lg w-full"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between p-5 border-b border-white/10">
+                            <div>
+                                <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
+                                    IMPORT COMPLETE
+                                </div>
+                                <h3 className="text-xl font-bold tracking-tight mt-1">Excel Import Summary</h3>
+                            </div>
+                            <button onClick={() => setImportResult(null)} className="text-gray-400 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-5">
+                            <div className="grid grid-cols-3 gap-3 mb-4">
+                                <div className="bg-[#111317] border border-emerald-500/30 p-3 text-center">
+                                    <div className="text-2xl font-bold text-emerald-400">{importResult.created}</div>
+                                    <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">Created</div>
+                                </div>
+                                <div className="bg-[#111317] border border-amber-500/30 p-3 text-center">
+                                    <div className="text-2xl font-bold text-amber-400">{importResult.updated}</div>
+                                    <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">Updated</div>
+                                </div>
+                                <div className="bg-[#111317] border border-red-500/30 p-3 text-center">
+                                    <div className="text-2xl font-bold text-red-400">{importResult.errors.length}</div>
+                                    <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">Errors</div>
+                                </div>
+                            </div>
+                            {importResult.errors.length > 0 && (
+                                <div>
+                                    <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-2">
+                                        Skipped Rows
+                                    </div>
+                                    <div className="max-h-56 overflow-y-auto space-y-1">
+                                        {importResult.errors.map((er, i) => (
+                                            <div
+                                                key={i}
+                                                className="flex gap-3 font-mono text-xs border-b border-white/5 py-1.5"
+                                            >
+                                                <span className="text-gray-500 shrink-0">Row {er.row}</span>
+                                                {er.sku_code ? (
+                                                    <span className="text-amber-400 shrink-0">{er.sku_code}</span>
+                                                ) : null}
+                                                <span className="text-red-300">{er.error}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {importResult.errors.length === 0 && (
+                                <div className="text-sm text-emerald-300">All rows imported successfully.</div>
+                            )}
+                        </div>
+                        <div className="p-5 border-t border-white/10 flex justify-end">
+                            <button
+                                onClick={() => setImportResult(null)}
+                                className="bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 text-sm font-bold uppercase tracking-wider"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

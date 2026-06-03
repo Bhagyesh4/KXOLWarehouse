@@ -3,5 +3,6 @@
 - [asyncpg schema evolution & types](asyncpg-schema-evolution.md) — adding a column needs CREATE TABLE edit + ALTER TABLE ADD COLUMN IF NOT EXISTS in db.py DDL; DECIMAL cols need Python Decimal, not float
 - [Local Postgres vs Replit-managed DB](local-postgres-vs-replit-db.md) — app uses local Postgres via DATABASE_URL; executeSql/database skill hit a DIFFERENT db. Use `psql "$DATABASE_URL"` to see real data
 - [Backend testing (pytest + hermetic FastAPI)](backend-testing.md) — install pytest via pip --target into .pythonlibs; test FastAPI in-process w/ TestClient (no `with`), override get_user + monkeypatch db.get_pool
+- [Python package install](python-package-install.md) — uv (installLanguagePackages) fails on read-only Nix store; use `pip install` (lands in .pythonlibs) + add pinned line to backend/requirements.txt
 - [Bag color two sources](bag-color-two-sources.md) — SKU default vs per-inbound-item actual color; display prefers item over SKU (`it.bag_color || it.sku?.bag_color`); not propagated to stock
 - [Outbound pick-by-scan](outbound-pick-by-scan.md) — scanning inbounded pallet barcode picks outbound order; outbound_picks table; only received pallets pickable; stock depletes only at packing→shipped
