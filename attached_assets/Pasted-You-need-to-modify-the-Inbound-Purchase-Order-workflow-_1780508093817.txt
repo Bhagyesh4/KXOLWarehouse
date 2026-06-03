@@ -1,0 +1,108 @@
+You need to modify the Inbound Purchase Order workflow in the Warehouse Management System (WMS).
+
+Objective
+
+Implement a new 2-step warehouse location selection process before the "Create Purchase Order" screen appears.
+
+Current Flow
+
+Current process:
+
+User clicks New Purchase Order
+Purchase Order popup opens directly (as shown in attached screenshot)
+User selects SKU, Bin/Rack, Qty, etc.
+Required New Flow
+Step 1 – Warehouse Selection
+
+When user clicks New Purchase Order, do NOT open the Purchase Order form immediately.
+
+Instead, open a Warehouse Selection modal/page that:
+
+Displays all active warehouses available in the system.
+User must select exactly one warehouse.
+User cannot proceed without selecting a warehouse.
+Step 2 – Warehouse Layout / Rack Selection
+
+After warehouse selection:
+
+Load the selected warehouse's storage layout image.
+Use the warehouse image already stored in Warehouse Management settings.
+Display the image in an interactive view.
+
+Requirements:
+
+Every rack/bin/location configured on the warehouse layout must be clickable.
+User selects the exact storage location directly from the warehouse image.
+Selected rack/location should be highlighted visually.
+Show selected location details before confirmation.
+User must confirm the selected location.
+
+After confirmation:
+
+Open the Purchase Order form.
+Step 3 – Purchase Order Screen
+
+Once rack/location has already been selected from the warehouse image:
+
+Remove Bin/Rack Dropdown
+
+The following field must be completely removed:
+
+Bin / Rack dropdown
+
+Because the location has already been selected in Step 2.
+
+Instead:
+
+Automatically populate the selected rack/location.
+Store the selected rack/location in the Purchase Order record.
+Display selected location as read-only information if required.
+Data Handling Requirements
+
+When Purchase Order is created:
+
+Store:
+
+Warehouse ID
+Warehouse Name
+Selected Rack/Bin Location ID
+Selected Rack/Bin Location Name
+SKU
+Bag Color
+Batch / Lot Number
+Manufacturing Date
+Expiry Date
+Quantity
+All existing Purchase Order data
+
+The selected rack/location from Step 2 must flow through the entire inbound process without requiring any additional user selection.
+
+Validation Rules
+User cannot proceed without warehouse selection.
+User cannot proceed without rack/location selection.
+User cannot proceed without rack/location confirmation.
+Selected location must belong only to the selected warehouse.
+Prevent invalid location assignments.
+UI Requirements
+Warehouse Selection Screen
+
+Display:
+
+Warehouse Name
+Warehouse Code (if available)
+Warehouse Status
+Warehouse Layout Screen
+
+Display:
+
+Warehouse Layout Image
+Clickable Rack Locations
+Selected Location Indicator
+Confirm Location Button
+Back Button
+Purchase Order Screen
+
+Keep all existing functionality exactly as it is except:
+
+Remove Bin/Rack dropdown completely.
+Use pre-selected rack/location automatically.
