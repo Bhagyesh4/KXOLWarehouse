@@ -3,6 +3,7 @@ import Barcode from "react-barcode";
 import { api, formatErr } from "../lib/api";
 import {
     ArrowLeftRight,
+    Camera,
     CheckCircle2,
     ClipboardCheck,
     MapPin,
@@ -12,6 +13,7 @@ import {
     X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import Scanner from "../components/Scanner";
 
 const BAG_COLOR_HEX = { Green: "#22c55e", White: "#e5e7eb", Yellow: "#eab308" };
 
@@ -179,6 +181,7 @@ export default function Transfer() {
     const [scanBarcode, setScanBarcode] = useState("");
     const [scanBusy, setScanBusy] = useState(false);
     const [scanMsg, setScanMsg] = useState(null);
+    const [scanning, setScanning] = useState(false);
     const scanRef = useRef(null);
 
     const load = async () => {
@@ -244,14 +247,13 @@ export default function Transfer() {
         }
     };
 
-    const doScan = async (e) => {
-        e.preventDefault();
-        const val = scanBarcode.trim();
-        if (!val) return;
+    const confirmBarcode = async (val) => {
+        const trimmed = val.trim();
+        if (!trimmed) return;
         setScanBusy(true);
         setScanMsg(null);
         try {
-            const res = await api.post("/storage/transfers/confirm-putaway", { barcode: val });
+            const res = await api.post("/storage/transfers/confirm-putaway", { barcode: trimmed });
             setScanMsg({
                 type: "ok",
                 text: `Putaway confirmed — pallet ${res.data.pallet_code} placed at ${res.data.to_code}`,
@@ -264,6 +266,11 @@ export default function Transfer() {
             setScanBusy(false);
             scanRef.current?.focus();
         }
+    };
+
+    const doScan = (e) => {
+        e.preventDefault();
+        confirmBarcode(scanBarcode);
     };
 
     return (
@@ -532,6 +539,14 @@ export default function Transfer() {
                         </div>
                     )}
 
+                    <button
+                        onClick={() => setScanning(true)}
+                        disabled={scanBusy}
+                        className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-black px-4 py-2.5 text-sm font-bold uppercase tracking-wider"
+                    >
+                        <Camera size={15} /> Scan Barcode
+                    </button>
+
                     <form onSubmit={doScan} className="flex gap-2">
                         <div className="relative flex-1">
                             <ScanLine size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -539,7 +554,7 @@ export default function Transfer() {
                                 ref={scanRef}
                                 value={scanBarcode}
                                 onChange={(e) => setScanBarcode(e.target.value)}
-                                placeholder="Scan pallet barcode or type destination location code…"
+                                placeholder="Or type pallet / location code…"
                                 className="w-full bg-[#090a0c] border border-white/10 pl-9 pr-3 py-2 text-xs font-mono focus:border-amber-500 focus:outline-none"
                                 autoComplete="off"
                             />
@@ -553,10 +568,20 @@ export default function Transfer() {
                         </button>
                     </form>
                     <p className="text-[10px] text-gray-600 font-mono">
-                        Scan the pallet barcode from the Transfer Label, or type the destination location code.
+                        Use the camera to scan the Transfer Label barcode, or type the pallet / destination code manually.
                     </p>
                 </div>
             </div>
+
+            {scanning && (
+                <Scanner
+                    onScan={(code) => {
+                        setScanning(false);
+                        confirmBarcode(code);
+                    }}
+                    onClose={() => setScanning(false)}
+                />
+            )}
 
             {/* History table */}
             <div className="bg-[#181a20] border border-white/10">
