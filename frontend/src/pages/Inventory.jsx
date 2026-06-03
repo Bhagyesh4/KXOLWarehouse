@@ -105,6 +105,7 @@ export default function Inventory() {
                             <th className="text-left py-3 px-4">SKU</th>
                             <th className="text-left py-3 px-4">Name</th>
                             <th className="text-left py-3 px-4">Category</th>
+                            <th className="text-left py-3 px-4">Bag Color</th>
                             <th className="text-right py-3 px-4">Unit Price</th>
                             <th className="text-right py-3 px-4">On Hand</th>
                             <th className="text-right py-3 px-4">Reorder</th>
@@ -125,6 +126,7 @@ export default function Inventory() {
                                     <td className="py-3 px-4 font-mono text-amber-400">{s.sku_code}</td>
                                     <td className="py-3 px-4">{s.name}</td>
                                     <td className="py-3 px-4 text-gray-400">{s.category}</td>
+                                    <td className="py-3 px-4 text-gray-400">{s.bag_color || "—"}</td>
                                     <td className="py-3 px-4 text-right font-mono">${s.unit_price.toFixed(2)}</td>
                                     <td className="py-3 px-4 text-right font-mono">{s.total_stock}</td>
                                     <td className="py-3 px-4 text-right font-mono text-gray-500">{s.reorder_level}</td>
@@ -163,7 +165,7 @@ export default function Inventory() {
                         })}
                         {skus.length === 0 && (
                             <tr>
-                                <td colSpan={8} className="py-12 text-center text-gray-500">
+                                <td colSpan={9} className="py-12 text-center text-gray-500">
                                     No SKUs found.
                                 </td>
                             </tr>
@@ -207,6 +209,10 @@ export default function Inventory() {
                             </div>
                             <div className="space-y-2 font-mono text-sm">
                                 <Detail label="Category" value={view.category} />
+                                <Detail label="Bag Color" value={view.bag_color || "—"} />
+                                <Detail label="Weight per Bag" value={view.weight_per_bag != null ? view.weight_per_bag : "—"} />
+                                <Detail label="Bags per Pallet" value={view.bags_per_pallet != null ? view.bags_per_pallet : "—"} />
+                                <Detail label="Dimensions" value={view.dimensions || "—"} />
                                 <Detail label="Unit" value={view.unit} />
                                 <Detail label="Unit Price" value={`$${view.unit_price.toFixed(2)}`} />
                                 <Detail label="On Hand" value={view.total_stock} />
@@ -271,6 +277,10 @@ function SkuFormModal({ onClose, onSave, initial }) {
             sku_code: "",
             name: "",
             category: "",
+            bag_color: "",
+            weight_per_bag: "",
+            bags_per_pallet: "",
+            dimensions: "",
             unit: "EA",
             unit_price: 0,
             reorder_level: 10,
@@ -281,11 +291,23 @@ function SkuFormModal({ onClose, onSave, initial }) {
 
     const submit = async (e) => {
         e.preventDefault();
-        setBusy(true);
         setErr("");
+
+        if (!f.bag_color) return setErr("Bag Color is required");
+        const weight = parseFloat(f.weight_per_bag);
+        if (!(weight > 0)) return setErr("Weight per Bag must be greater than 0");
+        const bags = Number(f.bags_per_pallet);
+        if (!Number.isInteger(bags) || bags <= 0)
+            return setErr("Bags per Pallet must be a whole number greater than 0");
+        if (!f.dimensions || !f.dimensions.trim()) return setErr("Dimensions cannot be empty");
+
+        setBusy(true);
         try {
             await onSave({
                 ...f,
+                weight_per_bag: weight,
+                bags_per_pallet: bags,
+                dimensions: f.dimensions.trim(),
                 unit_price: parseFloat(f.unit_price) || 0,
                 reorder_level: parseInt(f.reorder_level) || 0,
             });
@@ -311,6 +333,14 @@ function SkuFormModal({ onClose, onSave, initial }) {
                     <FormField label="SKU Code" value={f.sku_code} onChange={(v) => setF({ ...f, sku_code: v })} disabled={!!initial} testid="form-sku-code" />
                     <FormField label="Name" value={f.name} onChange={(v) => setF({ ...f, name: v })} testid="form-sku-name" />
                     <FormField label="Category" value={f.category} onChange={(v) => setF({ ...f, category: v })} testid="form-sku-category" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <FormField label="Bag Color" type="select" options={["Green", "White", "Yellow"]} placeholder="Select color" value={f.bag_color} onChange={(v) => setF({ ...f, bag_color: v })} testid="form-sku-bag-color" />
+                        <FormField label="Weight per Bag" type="number" step="0.01" min="0" value={f.weight_per_bag} onChange={(v) => setF({ ...f, weight_per_bag: v })} testid="form-sku-weight" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <FormField label="Bags per Pallet" type="number" min="0" value={f.bags_per_pallet} onChange={(v) => setF({ ...f, bags_per_pallet: v })} testid="form-sku-bags" />
+                        <FormField label="Dimensions" value={f.dimensions} onChange={(v) => setF({ ...f, dimensions: v })} testid="form-sku-dimensions" />
+                    </div>
                     <div className="grid grid-cols-3 gap-3">
                         <FormField label="Unit" value={f.unit} onChange={(v) => setF({ ...f, unit: v })} testid="form-sku-unit" />
                         <FormField label="Unit Price" type="number" value={f.unit_price} onChange={(v) => setF({ ...f, unit_price: v })} testid="form-sku-price" />
@@ -331,21 +361,45 @@ function SkuFormModal({ onClose, onSave, initial }) {
     );
 }
 
-function FormField({ label, value, onChange, type = "text", disabled, testid }) {
+function FormField({ label, value, onChange, type = "text", disabled, testid, options, placeholder, step, min }) {
+    const cls =
+        "w-full mt-1 bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60";
     return (
         <div>
             <label className="text-[10px] uppercase tracking-[0.15em] text-gray-500 font-semibold">
                 {label}
             </label>
-            <input
-                data-testid={testid}
-                type={type}
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                disabled={disabled}
-                required
-                className="w-full mt-1 bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60"
-            />
+            {type === "select" ? (
+                <select
+                    data-testid={testid}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    disabled={disabled}
+                    required
+                    className={cls}
+                >
+                    <option value="" disabled>
+                        {placeholder || "Select..."}
+                    </option>
+                    {(options || []).map((opt) => (
+                        <option key={opt} value={opt}>
+                            {opt}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <input
+                    data-testid={testid}
+                    type={type}
+                    step={step}
+                    min={min}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    disabled={disabled}
+                    required
+                    className={cls}
+                />
+            )}
         </div>
     );
 }

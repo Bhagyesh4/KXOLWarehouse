@@ -38,9 +38,18 @@ CREATE TABLE IF NOT EXISTS skus (
     unit          TEXT NOT NULL DEFAULT 'EA',
     unit_price    FLOAT NOT NULL DEFAULT 0,
     reorder_level INT NOT NULL DEFAULT 10,
+    bag_color       VARCHAR(50),
+    weight_per_bag  DECIMAL(10,2),
+    bags_per_pallet INTEGER,
+    dimensions      VARCHAR(255),
     total_stock   INT NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL
 );
+
+ALTER TABLE skus ADD COLUMN IF NOT EXISTS bag_color       VARCHAR(50);
+ALTER TABLE skus ADD COLUMN IF NOT EXISTS weight_per_bag  DECIMAL(10,2);
+ALTER TABLE skus ADD COLUMN IF NOT EXISTS bags_per_pallet INTEGER;
+ALTER TABLE skus ADD COLUMN IF NOT EXISTS dimensions      VARCHAR(255);
 
 CREATE TABLE IF NOT EXISTS locations (
     id                 TEXT PRIMARY KEY,

@@ -10,6 +10,7 @@ import logging
 import bcrypt
 import jwt
 import random
+from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
@@ -80,9 +81,33 @@ class SkuIn(BaseModel):
     sku_code: str
     name: str
     category: str
+    bag_color: Optional[str] = None
+    weight_per_bag: Optional[float] = None
+    bags_per_pallet: Optional[int] = None
+    dimensions: Optional[str] = None
     unit: str = "EA"
     unit_price: float = 0.0
     reorder_level: int = 10
+
+
+BAG_COLORS = {"Green", "White", "Yellow"}
+
+
+def _validate_sku_fields(body: "SkuIn"):
+    if not body.bag_color or not body.bag_color.strip():
+        raise HTTPException(400, "Bag Color is required")
+    if body.bag_color not in BAG_COLORS:
+        raise HTTPException(400, "Bag Color must be one of: Green, White, Yellow")
+    if body.weight_per_bag is None or body.weight_per_bag <= 0:
+        raise HTTPException(400, "Weight per Bag must be greater than 0")
+    if body.bags_per_pallet is None or body.bags_per_pallet <= 0:
+        raise HTTPException(400, "Bags per Pallet must be greater than 0")
+    if not body.dimensions or not body.dimensions.strip():
+        raise HTTPException(400, "Dimensions cannot be empty")
+
+
+def _to_decimal(value):
+    return Decimal(str(value)) if value is not None else None
 
 
 class InboundItemIn(BaseModel):
@@ -302,6 +327,7 @@ async def list_skus(q: Optional[str] = None, category: Optional[str] = None, use
 
 @api.post("/inventory/skus")
 async def create_sku(body: SkuIn, user: dict = Depends(require_role("admin", "manager"))):
+    _validate_sku_fields(body)
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         existing = await conn.fetchrow("SELECT id FROM skus WHERE sku_code = $1", body.sku_code)
@@ -310,22 +336,27 @@ async def create_sku(body: SkuIn, user: dict = Depends(require_role("admin", "ma
         sid = str(uuid.uuid4())
         ts = now_iso()
         await conn.execute(
-            "INSERT INTO skus (id, sku_code, name, category, unit, unit_price, reorder_level, total_stock, created_at) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-            sid, body.sku_code, body.name, body.category, body.unit,
-            body.unit_price, body.reorder_level, 0, ts,
+            "INSERT INTO skus (id, sku_code, name, category, bag_color, weight_per_bag, "
+            "bags_per_pallet, dimensions, unit, unit_price, reorder_level, total_stock, created_at) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+            sid, body.sku_code, body.name, body.category,
+            body.bag_color, _to_decimal(body.weight_per_bag), body.bags_per_pallet, body.dimensions,
+            body.unit, body.unit_price, body.reorder_level, 0, ts,
         )
     return {**body.model_dump(), "id": sid, "total_stock": 0, "created_at": ts}
 
 
 @api.put("/inventory/skus/{sku_id}")
 async def update_sku(sku_id: str, body: SkuIn, user: dict = Depends(require_role("admin", "manager"))):
+    _validate_sku_fields(body)
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         res = await conn.execute(
-            "UPDATE skus SET sku_code=$1, name=$2, category=$3, unit=$4, unit_price=$5, reorder_level=$6 WHERE id=$7",
-            body.sku_code, body.name, body.category, body.unit,
-            body.unit_price, body.reorder_level, sku_id,
+            "UPDATE skus SET sku_code=$1, name=$2, category=$3, bag_color=$4, weight_per_bag=$5, "
+            "bags_per_pallet=$6, dimensions=$7, unit=$8, unit_price=$9, reorder_level=$10 WHERE id=$11",
+            body.sku_code, body.name, body.category,
+            body.bag_color, _to_decimal(body.weight_per_bag), body.bags_per_pallet, body.dimensions,
+            body.unit, body.unit_price, body.reorder_level, sku_id,
         )
         if res == "UPDATE 0":
             raise HTTPException(404, "SKU not found")
