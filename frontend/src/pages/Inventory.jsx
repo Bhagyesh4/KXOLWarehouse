@@ -6,6 +6,8 @@ import { useAuth } from "../context/AuthContext";
 import Scanner from "../components/Scanner";
 
 const BAG_COLOR_HEX = { Green: "#22c55e", White: "#e5e7eb", Yellow: "#eab308" };
+const BAG_COLORS = ["Green", "White", "Yellow"];
+const UNSPECIFIED = "Unspecified";
 
 export default function Inventory() {
     const { user } = useAuth();
@@ -16,6 +18,7 @@ export default function Inventory() {
     const [view, setView] = useState(null);
     const [stockDetail, setStockDetail] = useState([]);
     const [scanOpen, setScanOpen] = useState(false);
+    const [colorFilter, setColorFilter] = useState(null);
 
     const canEdit = user?.role === "admin" || user?.role === "manager";
     const canDelete = user?.role === "admin";
@@ -55,6 +58,21 @@ export default function Inventory() {
         if (s.total_stock <= s.reorder_level) return { label: "Low Stock", cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" };
         return { label: "In Stock", cls: "border-emerald-500/40 text-emerald-400 bg-emerald-500/10" };
     };
+
+    const colorKey = (s) => (BAG_COLORS.includes(s.bag_color) ? s.bag_color : UNSPECIFIED);
+
+    const breakdown = (() => {
+        const groups = {};
+        for (const c of [...BAG_COLORS, UNSPECIFIED]) groups[c] = { count: 0, onHand: 0 };
+        for (const s of skus) {
+            const g = groups[colorKey(s)];
+            g.count += 1;
+            g.onHand += s.total_stock || 0;
+        }
+        return groups;
+    })();
+
+    const visibleSkus = colorFilter ? skus.filter((s) => colorKey(s) === colorFilter) : skus;
 
     return (
         <div className="space-y-5">
@@ -100,6 +118,65 @@ export default function Inventory() {
                 </div>
             </div>
 
+            <div>
+                <div className="flex items-center justify-between mb-2">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-gray-500">
+                        Inventory by Bag Color
+                    </div>
+                    {colorFilter && (
+                        <button
+                            data-testid="clear-color-filter"
+                            onClick={() => setColorFilter(null)}
+                            className="font-mono text-[10px] uppercase tracking-wider text-amber-400 hover:text-amber-300"
+                        >
+                            Clear filter ✕
+                        </button>
+                    )}
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[...BAG_COLORS, UNSPECIFIED]
+                        .filter((c) => c !== UNSPECIFIED || breakdown[c].count > 0)
+                        .map((c) => {
+                            const g = breakdown[c];
+                            const active = colorFilter === c;
+                            return (
+                                <button
+                                    key={c}
+                                    data-testid={`color-card-${c}`}
+                                    onClick={() => setColorFilter(active ? null : c)}
+                                    className={`text-left bg-[#181a20] border p-3 transition-colors ${
+                                        active ? "border-amber-500/60" : "border-white/10 hover:border-white/25"
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span
+                                            className="inline-block w-3 h-3 rounded-full border border-white/30"
+                                            style={{ backgroundColor: BAG_COLOR_HEX[c] || "#6b7280" }}
+                                        />
+                                        <span className="font-mono text-xs uppercase tracking-wider text-gray-300">
+                                            {c}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-end justify-between">
+                                        <div>
+                                            <div className="text-2xl font-bold leading-none">{g.onHand}</div>
+                                            <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">
+                                                Units on hand
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="font-mono text-sm text-amber-400">{g.count}</div>
+                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">
+                                                SKUs
+                                            </div>
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                </div>
+            </div>
+
             <div className="bg-[#181a20] border border-white/10 overflow-x-auto">
                 <table className="w-full text-sm">
                     <thead className="bg-[#111317] text-[10px] uppercase tracking-[0.15em] text-gray-500">
@@ -116,7 +193,7 @@ export default function Inventory() {
                         </tr>
                     </thead>
                     <tbody>
-                        {skus.map((s, i) => {
+                        {visibleSkus.map((s, i) => {
                             const st = status(s);
                             return (
                                 <tr
@@ -177,10 +254,10 @@ export default function Inventory() {
                                 </tr>
                             );
                         })}
-                        {skus.length === 0 && (
+                        {visibleSkus.length === 0 && (
                             <tr>
                                 <td colSpan={9} className="py-12 text-center text-gray-500">
-                                    No SKUs found.
+                                    {colorFilter ? `No SKUs with bag color "${colorFilter}".` : "No SKUs found."}
                                 </td>
                             </tr>
                         )}
@@ -322,7 +399,6 @@ function SkuFormModal({ onClose, onSave, initial }) {
         e.preventDefault();
         setErr("");
 
-        if (!f.bag_color) return setErr("Bag Color is required");
         const weight = parseFloat(f.weight_per_bag);
         if (!(weight > 0)) return setErr("Weight per Bag must be greater than 0");
         const bags = Number(f.bags_per_pallet);
@@ -363,7 +439,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                     <FormField label="Name" value={f.name} onChange={(v) => setF({ ...f, name: v })} testid="form-sku-name" />
                     <FormField label="Category" value={f.category} onChange={(v) => setF({ ...f, category: v })} testid="form-sku-category" />
                     <div className="grid grid-cols-2 gap-3">
-                        <FormField label="Bag Color" type="select" options={["Green", "White", "Yellow"]} colorMap={BAG_COLOR_HEX} placeholder="Select color" value={f.bag_color} onChange={(v) => setF({ ...f, bag_color: v })} testid="form-sku-bag-color" />
+                        <FormField label="Bag Color" type="select" options={["Green", "White", "Yellow"]} colorMap={BAG_COLOR_HEX} placeholder="None (optional)" optional value={f.bag_color} onChange={(v) => setF({ ...f, bag_color: v })} testid="form-sku-bag-color" />
                         <FormField label="Weight per Bag" type="number" step="0.01" min="0" value={f.weight_per_bag} onChange={(v) => setF({ ...f, weight_per_bag: v })} testid="form-sku-weight" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -390,7 +466,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
     );
 }
 
-function FormField({ label, value, onChange, type = "text", disabled, testid, options, placeholder, step, min, colorMap }) {
+function FormField({ label, value, onChange, type = "text", disabled, testid, options, placeholder, step, min, colorMap, optional }) {
     const cls =
         "w-full mt-1 bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60";
     return (
@@ -412,10 +488,10 @@ function FormField({ label, value, onChange, type = "text", disabled, testid, op
                         value={value}
                         onChange={(e) => onChange(e.target.value)}
                         disabled={disabled}
-                        required
+                        required={!optional}
                         className={`${cls} ${colorMap && value ? "pl-8" : ""}`}
                     >
-                        <option value="" disabled>
+                        <option value="" disabled={!optional}>
                             {placeholder || "Select..."}
                         </option>
                         {(options || []).map((opt) => (
@@ -438,7 +514,7 @@ function FormField({ label, value, onChange, type = "text", disabled, testid, op
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     disabled={disabled}
-                    required
+                    required={!optional}
                     className={cls}
                 />
             )}

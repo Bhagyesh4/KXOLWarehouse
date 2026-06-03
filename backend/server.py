@@ -117,9 +117,10 @@ def _packaging_for(category: Optional[str]):
 
 
 def _validate_sku_fields(body: "SkuIn"):
-    if not body.bag_color or not body.bag_color.strip():
-        raise HTTPException(400, "Bag Color is required")
-    if body.bag_color not in BAG_COLORS:
+    # Bag Color is optional; normalise blank/whitespace to None so it stores as
+    # NULL rather than an empty string.
+    body.bag_color = body.bag_color.strip() if body.bag_color and body.bag_color.strip() else None
+    if body.bag_color is not None and body.bag_color not in BAG_COLORS:
         raise HTTPException(400, "Bag Color must be one of: Green, White, Yellow")
     if body.weight_per_bag is None or body.weight_per_bag <= 0:
         raise HTTPException(400, "Weight per Bag must be greater than 0")
@@ -1924,18 +1925,19 @@ async def seed_data():
         # Columns (bag_color/weight_per_bag/bags_per_pallet/dimensions) were
         # added after some SKUs were created, leaving them NULL. Fill any gaps
         # with sensible category-based defaults so the catalog stays complete.
+        # Bag Color is user-optional, so it is deliberately NOT backfilled here —
+        # only the still-required packaging fields are filled for legacy SKUs.
         missing = await conn.fetch(
-            "SELECT id, category FROM skus WHERE bag_color IS NULL OR weight_per_bag IS NULL "
+            "SELECT id, category FROM skus WHERE weight_per_bag IS NULL "
             "OR bags_per_pallet IS NULL OR dimensions IS NULL"
         )
         for s in missing:
-            color, wpb, bpp, dims = _packaging_for(s["category"])
+            _, wpb, bpp, dims = _packaging_for(s["category"])
             await conn.execute(
-                "UPDATE skus SET bag_color=COALESCE(bag_color,$1), "
-                "weight_per_bag=COALESCE(weight_per_bag,$2), "
-                "bags_per_pallet=COALESCE(bags_per_pallet,$3), "
-                "dimensions=COALESCE(dimensions,$4) WHERE id=$5",
-                color, _to_decimal(wpb), bpp, dims, s["id"],
+                "UPDATE skus SET weight_per_bag=COALESCE(weight_per_bag,$1), "
+                "bags_per_pallet=COALESCE(bags_per_pallet,$2), "
+                "dimensions=COALESCE(dimensions,$3) WHERE id=$4",
+                _to_decimal(wpb), bpp, dims, s["id"],
             )
 
         # ── Sample inbound orders ────────────────────────────────────

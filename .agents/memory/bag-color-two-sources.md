@@ -4,7 +4,7 @@ description: Where bag_color lives in the WMS data model and which one display l
 ---
 
 Bag color now exists in two places, and they mean different things:
-- `skus.bag_color` — the SKU's *default/expected* bag color (required at SKU create).
+- `skus.bag_color` — the SKU's *default/expected* bag color (OPTIONAL at SKU create/update; blank/whitespace normalises to NULL, and the startup backfill deliberately does NOT fill it).
 - `inbound_items.bag_color` — the *actual* color captured per line during the Create Purchase Order (inbound) flow. Optional; defaults from the SKU in the UI but can be overridden per receipt.
 
 **Why:** the same SKU can be received in different bag colors per shipment, so the truth for a given receipt is the inbound item, not the SKU.

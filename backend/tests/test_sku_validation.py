@@ -1,7 +1,8 @@
 """Automated coverage for SKU create/update validation rules.
 
 Rules enforced by `_validate_sku_fields` (backend/server.py):
-  - bag_color must be one of {Green, White, Yellow} and non-empty
+  - bag_color is OPTIONAL; if provided it must be one of {Green, White, Yellow}.
+    Empty/whitespace/None normalises to NULL and is accepted.
   - weight_per_bag must be > 0
   - bags_per_pallet must be an integer > 0
   - dimensions must be non-empty
@@ -56,16 +57,20 @@ class TestBagColor:
         assert r.status_code == 400
 
     def test_create_empty_color(self, client):
-        r = _create(client, bag_color="")
-        assert r.status_code == 400
+        # Bag color is optional; empty string normalises to NULL.
+        r = _create(client, bag_color="", sku_code="TEST-EMPTY")
+        assert r.status_code == 200, r.text
+        assert r.json()["bag_color"] is None
 
     def test_create_null_color(self, client):
-        r = _create(client, bag_color=None)
-        assert r.status_code == 400
+        r = _create(client, bag_color=None, sku_code="TEST-NULL")
+        assert r.status_code == 200, r.text
+        assert r.json()["bag_color"] is None
 
     def test_update_empty_color(self, client):
+        # Whitespace-only also normalises to NULL and is accepted.
         r = _update(client, bag_color="   ")
-        assert r.status_code == 400
+        assert r.status_code == 200, r.text
 
 
 # ---------- bags_per_pallet ----------
