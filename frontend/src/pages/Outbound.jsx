@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Plus, X, ArrowRight, Printer, ScanLine } from "lucide-react";
+import { Plus, X, ArrowRight, Printer, ScanLine, Check } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Scanner from "../components/Scanner";
 
@@ -44,6 +44,7 @@ export default function Outbound() {
     const [orders, setOrders] = useState([]);
     const [skus, setSkus] = useState([]);
     const [open, setOpen] = useState(false);
+    const [pickOrder, setPickOrder] = useState(null);
 
     const canCreate = user?.role === "admin" || user?.role === "manager";
 
@@ -51,6 +52,7 @@ export default function Outbound() {
         const [a, b] = await Promise.all([api.get("/outbound"), api.get("/inventory/skus")]);
         setOrders(a.data);
         setSkus(b.data);
+        return a.data;
     };
 
     useEffect(() => {
@@ -108,19 +110,41 @@ export default function Outbound() {
                                     <div className="font-mono text-amber-400 font-semibold text-sm">{o.so_number}</div>
                                     <div className="text-xs text-gray-500 mb-2">{o.customer}</div>
                                     <div className="space-y-1 mb-3">
-                                        {o.items.slice(0, 3).map((it, i) => (
-                                            <div key={i} className="py-0.5 border-b border-white/5">
-                                                <div className="flex justify-between text-[11px] font-mono">
-                                                    <span className="truncate text-gray-400">{skuMap[it.sku_id]?.sku_code || "—"}</span>
-                                                    <span>{it.qty}</span>
+                                        {o.items.slice(0, 3).map((it, i) => {
+                                            const picked = it.picked_qty || 0;
+                                            const done = picked >= it.qty;
+                                            const showPick = st === "pending" || st === "picking";
+                                            return (
+                                                <div key={i} className="py-0.5 border-b border-white/5">
+                                                    <div className="flex justify-between text-[11px] font-mono">
+                                                        <span className="truncate text-gray-400">{skuMap[it.sku_id]?.sku_code || "—"}</span>
+                                                        <span className="flex items-center gap-1">
+                                                            {showPick && (
+                                                                <span className={done ? "text-emerald-400" : picked > 0 ? "text-amber-400" : "text-gray-600"}>
+                                                                    {picked}/
+                                                                </span>
+                                                            )}
+                                                            <span>{it.qty}</span>
+                                                            {showPick && done && <Check size={11} className="text-emerald-400" />}
+                                                        </span>
+                                                    </div>
+                                                    <BagMeta sku={skuMap[it.sku_id]} />
                                                 </div>
-                                                <BagMeta sku={skuMap[it.sku_id]} />
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                         {o.items.length > 3 && (
                                             <div className="text-[10px] text-gray-500">+{o.items.length - 3} more</div>
                                         )}
                                     </div>
+                                    {(st === "pending" || st === "picking") && (
+                                        <button
+                                            onClick={() => setPickOrder(o)}
+                                            data-testid={`pick-scan-${st}-${idx}`}
+                                            className="w-full flex items-center justify-center gap-1 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 text-blue-400 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors mb-1.5"
+                                        >
+                                            <ScanLine size={12} /> Scan to Pick
+                                        </button>
+                                    )}
                                     {st !== "shipped" && (
                                         <button
                                             onClick={() => advance(o.id)}
@@ -154,6 +178,19 @@ export default function Outbound() {
                     onSaved={() => {
                         setOpen(false);
                         load();
+                    }}
+                />
+            )}
+
+            {pickOrder && (
+                <PickScanModal
+                    order={pickOrder}
+                    skus={skus}
+                    onClose={() => setPickOrder(null)}
+                    onPicked={async () => {
+                        const fresh = await load();
+                        const updated = fresh.find((o) => o.id === pickOrder.id);
+                        if (updated) setPickOrder(updated);
                     }}
                 />
             )}
@@ -317,6 +354,149 @@ function NewOutboundModal({ skus, onClose, onSaved }) {
                         {busy ? "Creating..." : "Create Sales Order"}
                     </button>
                 </form>
+            </div>
+            {scanOpen && (
+                <div onClick={(e) => e.stopPropagation()}>
+                    <Scanner onScan={handleScan} onClose={() => setScanOpen(false)} />
+                </div>
+            )}
+        </div>
+    );
+}
+
+function PickScanModal({ order, skus, onClose, onPicked }) {
+    const [scanOpen, setScanOpen] = useState(false);
+    const [manual, setManual] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState("");
+    const [err, setErr] = useState("");
+    const skuMap = Object.fromEntries(skus.map((s) => [s.id, s]));
+
+    const submitBarcode = async (code) => {
+        const barcode = (code || "").trim();
+        if (!barcode || busy) return;
+        setBusy(true);
+        setErr("");
+        setMsg("");
+        try {
+            const { data } = await api.post(`/outbound/${order.id}/pick-scan`, { barcode });
+            if (data.fully_picked) {
+                setMsg(`✓ ${data.sku_code} picked (${data.picked_qty}/${data.ordered_qty}). Order fully picked — moved to Packing.`);
+            } else {
+                setMsg(`✓ ${data.sku_code} picked (${data.picked_qty}/${data.ordered_qty}).`);
+            }
+            setManual("");
+            await onPicked();
+        } catch (er) {
+            setErr(er.response?.data?.detail || er.message);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const handleScan = (code) => {
+        setScanOpen(false);
+        submitBarcode(code);
+    };
+
+    const fullyPicked = order.status === "packing";
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto" onClick={onClose}>
+            <div className="bg-[#181a20] border border-white/10 max-w-lg w-full my-8" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-white/10">
+                    <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-blue-400">
+                            SCAN TO PICK
+                        </div>
+                        <h3 className="text-lg font-bold mt-1">
+                            {order.so_number} <span className="text-gray-500 text-sm font-normal">· {order.customer}</span>
+                        </h3>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                        <X size={18} />
+                    </button>
+                </div>
+
+                <div className="p-5 space-y-4">
+                    <div className="border border-blue-500/30 bg-blue-500/5 p-3 text-[11px] text-gray-300 leading-relaxed">
+                        Scan or enter the barcode of an <span className="text-blue-400 font-mono">inbounded pallet</span> to
+                        pick it against this order. Once every line is fully picked, the order automatically moves to
+                        <span className="text-amber-400 font-mono"> Packing</span>.
+                    </div>
+
+                    <div className="space-y-1.5">
+                        {order.items.map((it, i) => {
+                            const picked = it.picked_qty || 0;
+                            const done = picked >= it.qty;
+                            return (
+                                <div key={i} className="flex items-center justify-between border border-white/10 px-3 py-2">
+                                    <span className="font-mono text-xs text-gray-300">{skuMap[it.sku_id]?.sku_code || it.sku_id}</span>
+                                    <span className="flex items-center gap-1.5 font-mono text-xs">
+                                        <span className={done ? "text-emerald-400" : picked > 0 ? "text-amber-400" : "text-gray-500"}>
+                                            {picked}/{it.qty}
+                                        </span>
+                                        {done && <Check size={13} className="text-emerald-400" />}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {msg && (
+                        <div className="border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[12px] font-mono text-emerald-300">
+                            {msg}
+                        </div>
+                    )}
+                    {err && (
+                        <div className="border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-mono text-red-400">
+                            {err}
+                        </div>
+                    )}
+
+                    {!fullyPicked && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setScanOpen(true)}
+                                data-testid="pick-open-camera-btn"
+                                className="w-full flex items-center justify-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 text-blue-400 py-2 text-xs font-bold uppercase tracking-wider transition-colors"
+                            >
+                                <ScanLine size={14} /> Open Camera Scanner
+                            </button>
+
+                            <form
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    submitBarcode(manual);
+                                }}
+                                className="flex gap-2"
+                            >
+                                <input
+                                    value={manual}
+                                    onChange={(e) => setManual(e.target.value)}
+                                    placeholder="Enter pallet barcode (e.g. PLT-PO-2026-1234-P01)"
+                                    data-testid="pick-manual-input"
+                                    className="flex-1 bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-xs focus:border-blue-500 focus:outline-none"
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={busy || !manual.trim()}
+                                    data-testid="pick-manual-submit"
+                                    className="bg-blue-500 hover:bg-blue-600 text-black font-bold uppercase text-xs px-4 disabled:opacity-50"
+                                >
+                                    {busy ? "..." : "Pick"}
+                                </button>
+                            </form>
+                        </>
+                    )}
+
+                    {fullyPicked && (
+                        <div className="border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-center text-amber-400 font-mono text-xs uppercase tracking-wider">
+                            Fully picked — now in Packing
+                        </div>
+                    )}
+                </div>
             </div>
             {scanOpen && (
                 <div onClick={(e) => e.stopPropagation()}>

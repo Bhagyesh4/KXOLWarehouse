@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import uuid
 import logging
+import asyncpg
 import bcrypt
 import jwt
 import random
@@ -151,6 +152,10 @@ class InboundIn(BaseModel):
 
 
 class PutawayScanIn(BaseModel):
+    barcode: str
+
+
+class PickScanIn(BaseModel):
     barcode: str
 
 
@@ -1307,9 +1312,24 @@ async def list_outbound(status: Optional[str] = None, user: dict = Depends(get_u
             return []
         ids = [o["id"] for o in orders]
         items = await conn.fetch("SELECT * FROM outbound_items WHERE outbound_id = ANY($1::text[])", ids)
+        picks = await conn.fetch(
+            "SELECT outbound_id, sku_id, COALESCE(SUM(qty),0) AS picked FROM outbound_picks "
+            "WHERE outbound_id = ANY($1::text[]) GROUP BY outbound_id, sku_id", ids
+        )
+    remaining_by_order_sku: dict = {}
+    for p in picks:
+        remaining_by_order_sku[(p["outbound_id"], p["sku_id"])] = p["picked"]
     items_by_order: dict = {}
-    for it in items:
-        items_by_order.setdefault(it["outbound_id"], []).append(dict(it))
+    # Allocate the SKU-level picked total across that SKU's order lines in turn,
+    # so a SKU spread over multiple lines reports accurate per-line progress.
+    for it in sorted(items, key=lambda r: r["id"]):
+        d = dict(it)
+        key = (it["outbound_id"], it["sku_id"])
+        avail = remaining_by_order_sku.get(key, 0)
+        alloc = min(avail, it["qty"])
+        d["picked_qty"] = alloc
+        remaining_by_order_sku[key] = avail - alloc
+        items_by_order.setdefault(it["outbound_id"], []).append(d)
     result = []
     for o in orders:
         d = dict(o)
@@ -1383,6 +1403,98 @@ async def advance_outbound(order_id: str, user: dict = Depends(require_role("adm
                     )
             await conn.execute("UPDATE outbound SET status=$1 WHERE id=$2", nxt, order_id)
     return {"ok": True, "status": nxt}
+
+
+async def _resolve_pallet(conn, barcode: str):
+    """Resolve a scanned pallet barcode to (sku_id, qty). Checks putaway stock
+    pallet codes first, then the inbound item barcode generated at receipt.
+    Only pallets that are actually in the warehouse are pickable: live stock
+    (qty > 0) or an inbound line whose order has been received (status
+    'completed')."""
+    s = await conn.fetchrow(
+        "SELECT sku_id, qty FROM stock WHERE pallet_code=$1 AND qty > 0 ORDER BY qty DESC", barcode
+    )
+    if s:
+        return s["sku_id"], s["qty"]
+    ii = await conn.fetchrow(
+        "SELECT ii.sku_id, ii.qty FROM inbound_items ii "
+        "JOIN inbound i ON i.id = ii.inbound_id "
+        "WHERE ii.barcode=$1 AND i.status='completed' ORDER BY ii.id LIMIT 1", barcode
+    )
+    if ii:
+        return ii["sku_id"], ii["qty"]
+    return None
+
+
+@api.post("/outbound/{order_id}/pick-scan")
+async def outbound_pick_scan(
+    order_id: str, body: PickScanIn,
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    barcode = (body.barcode or "").strip()
+    if not barcode:
+        raise HTTPException(400, "Barcode is required")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            order = await conn.fetchrow("SELECT * FROM outbound WHERE id=$1 FOR UPDATE", order_id)
+            if not order:
+                raise HTTPException(404, "Outbound order not found")
+            if order["status"] not in ("pending", "picking"):
+                raise HTTPException(400, "Order is already past picking")
+
+            resolved = await _resolve_pallet(conn, barcode)
+            if not resolved:
+                raise HTTPException(404, f"Unknown pallet barcode: {barcode}")
+            sku_id, pallet_qty = resolved
+
+            items = await conn.fetch("SELECT * FROM outbound_items WHERE outbound_id=$1", order_id)
+            ordered_by_sku: dict = {}
+            for it in items:
+                ordered_by_sku[it["sku_id"]] = ordered_by_sku.get(it["sku_id"], 0) + it["qty"]
+            if sku_id not in ordered_by_sku:
+                sku = await conn.fetchrow("SELECT sku_code FROM skus WHERE id=$1", sku_id)
+                code = sku["sku_code"] if sku else sku_id
+                raise HTTPException(400, f"Scanned pallet ({code}) is not part of this order")
+
+            dup = await conn.fetchrow(
+                "SELECT id FROM outbound_picks WHERE outbound_id=$1 AND barcode=$2", order_id, barcode
+            )
+            if dup:
+                raise HTTPException(400, "This pallet has already been scanned for this order")
+
+            try:
+                await conn.execute(
+                    "INSERT INTO outbound_picks (id, outbound_id, barcode, sku_id, qty, scanned_at, scanned_by) "
+                    "VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                    str(uuid.uuid4()), order_id, barcode, sku_id, pallet_qty, now_iso(), user["name"],
+                )
+            except asyncpg.UniqueViolationError:
+                raise HTTPException(400, "This pallet has already been scanned for this order")
+
+            pick_rows = await conn.fetch(
+                "SELECT sku_id, COALESCE(SUM(qty),0) AS picked FROM outbound_picks "
+                "WHERE outbound_id=$1 GROUP BY sku_id", order_id
+            )
+            picked_by_sku = {r["sku_id"]: r["picked"] for r in pick_rows}
+            fully_picked = all(
+                picked_by_sku.get(sid, 0) >= qty for sid, qty in ordered_by_sku.items()
+            )
+
+            new_status = "packing" if fully_picked else "picking"
+            if order["status"] != new_status:
+                await conn.execute("UPDATE outbound SET status=$1 WHERE id=$2", new_status, order_id)
+
+            sku = await conn.fetchrow("SELECT sku_code FROM skus WHERE id=$1", sku_id)
+    ordered_qty = ordered_by_sku[sku_id]
+    return {
+        "ok": True,
+        "status": new_status,
+        "fully_picked": fully_picked,
+        "sku_code": sku["sku_code"] if sku else sku_id,
+        "picked_qty": min(picked_by_sku.get(sku_id, 0), ordered_qty),
+        "ordered_qty": ordered_qty,
+    }
 
 
 # ---------- Dashboard ----------

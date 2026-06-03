@@ -152,6 +152,19 @@ CREATE TABLE IF NOT EXISTS outbound_items (
     qty         INT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS outbound_picks (
+    id          TEXT PRIMARY KEY,
+    outbound_id TEXT NOT NULL REFERENCES outbound(id) ON DELETE CASCADE,
+    barcode     TEXT NOT NULL,
+    sku_id      TEXT NOT NULL,
+    qty         INT NOT NULL,
+    scanned_at  TEXT NOT NULL,
+    scanned_by  TEXT,
+    UNIQUE (outbound_id, barcode)
+);
+
+CREATE INDEX IF NOT EXISTS idx_op_order ON outbound_picks(outbound_id);
+
 CREATE INDEX IF NOT EXISTS idx_oi_order ON outbound_items(outbound_id);
 
 CREATE TABLE IF NOT EXISTS zones_meta (
