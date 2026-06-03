@@ -92,6 +92,28 @@ class SkuIn(BaseModel):
 
 BAG_COLORS = {"Green", "White", "Yellow"}
 
+# Sensible packaging defaults by category, used for seeding new SKUs and for
+# backfilling existing SKUs whose packaging columns were added after creation.
+# Tuple: (bag_color, weight_per_bag_kg, bags_per_pallet, dimensions)
+PACKAGING_DEFAULTS = {
+    "Frozen Meat": ("White", 20.0, 48, "60x40x25 cm"),
+    "Seafood":     ("White", 18.0, 50, "60x40x22 cm"),
+    "Dairy":       ("Yellow", 25.0, 40, "60x40x30 cm"),
+    "Ice Cream":   ("Yellow", 20.0, 45, "60x40x28 cm"),
+    "Vegetables":  ("Green", 15.0, 60, "55x35x20 cm"),
+    "Fruits":      ("Green", 12.0, 64, "55x35x18 cm"),
+    "Bakery":      ("White", 10.0, 72, "50x30x20 cm"),
+    "Ready Meals": ("White", 12.0, 60, "55x35x22 cm"),
+    "Processed":   ("Yellow", 15.0, 56, "60x40x24 cm"),
+}
+DEFAULT_PACKAGING = ("White", 20.0, 48, "60x40x25 cm")
+
+
+def _packaging_for(category: Optional[str]):
+    """Return sensible (bag_color, weight_per_bag, bags_per_pallet, dimensions)
+    for a category, falling back to a generic default for unknown categories."""
+    return PACKAGING_DEFAULTS.get(category, DEFAULT_PACKAGING)
+
 
 def _validate_sku_fields(body: "SkuIn"):
     if not body.bag_color or not body.bag_color.strip():
@@ -1714,10 +1736,15 @@ async def seed_data():
             sku_rows_data = []
             ts = now_iso()
             for code, name, cat, unit, price, reorder in catalog:
-                sku_rows_data.append((str(uuid.uuid4()), code, name, cat, unit, price, reorder, 0, ts))
+                color, wpb, bpp, dims = _packaging_for(cat)
+                sku_rows_data.append((
+                    str(uuid.uuid4()), code, name, cat, unit, price, reorder, 0, ts,
+                    color, _to_decimal(wpb), bpp, dims,
+                ))
             await conn.executemany(
-                "INSERT INTO skus (id, sku_code, name, category, unit, unit_price, reorder_level, total_stock, created_at) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                "INSERT INTO skus (id, sku_code, name, category, unit, unit_price, reorder_level, total_stock, created_at, "
+                "bag_color, weight_per_bag, bags_per_pallet, dimensions) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
                 sku_rows_data,
             )
             # Fetch inserted skus and COLD-1 locations for initial stock distribution
@@ -1775,6 +1802,24 @@ async def seed_data():
                     str(uuid.uuid4()), "out", sku["id"], s["location_id"], 1,
                     f"SO-INIT-{random.randint(1000,9999)}", mv_ts,
                 )
+
+        # ── Backfill packaging details for SKUs missing them ─────────
+        # Columns (bag_color/weight_per_bag/bags_per_pallet/dimensions) were
+        # added after some SKUs were created, leaving them NULL. Fill any gaps
+        # with sensible category-based defaults so the catalog stays complete.
+        missing = await conn.fetch(
+            "SELECT id, category FROM skus WHERE bag_color IS NULL OR weight_per_bag IS NULL "
+            "OR bags_per_pallet IS NULL OR dimensions IS NULL"
+        )
+        for s in missing:
+            color, wpb, bpp, dims = _packaging_for(s["category"])
+            await conn.execute(
+                "UPDATE skus SET bag_color=COALESCE(bag_color,$1), "
+                "weight_per_bag=COALESCE(weight_per_bag,$2), "
+                "bags_per_pallet=COALESCE(bags_per_pallet,$3), "
+                "dimensions=COALESCE(dimensions,$4) WHERE id=$5",
+                color, _to_decimal(wpb), bpp, dims, s["id"],
+            )
 
         # ── Sample inbound orders ────────────────────────────────────
         inb_cnt = await conn.fetchval("SELECT COUNT(*) FROM inbound")
