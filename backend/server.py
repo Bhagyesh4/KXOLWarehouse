@@ -1363,18 +1363,21 @@ async def transfer_pallet(body: TransferIn, user: dict = Depends(require_role("a
         await conn.execute("UPDATE locations SET occupied = occupied + 1 WHERE id = $1", body.to_location_id)
         await conn.execute(
             "INSERT INTO transfers (id, stock_id, sku_id, sku_code, sku_name, pallet_code, qty, bag_color, "
-            "from_location_id, from_code, to_location_id, to_code, notes, transferred_by, transferred_at) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+            "from_location_id, from_code, to_location_id, to_code, notes, transferred_by, transferred_at, status) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
             tid, body.stock_id, stock["sku_id"], stock["sku_code"], stock["sku_name"],
             stock["pallet_code"], stock["qty"], stock["bag_color"],
             stock["from_loc_id"], stock["from_code"], body.to_location_id, dest["code"],
-            body.notes, user["id"], ts,
+            body.notes, user["id"], ts, "initiated",
         )
 
     return {
         "id": tid,
         "pallet_code": stock["pallet_code"],
         "sku_code": stock["sku_code"],
+        "sku_name": stock["sku_name"],
+        "qty": stock["qty"],
+        "bag_color": stock["bag_color"],
         "from_code": stock["from_code"],
         "to_code": dest["code"],
         "transferred_at": ts,
@@ -1387,12 +1390,49 @@ async def list_transfers(limit: int = 50, user: dict = Depends(get_user)):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT t.*, u.name AS transferred_by_name "
-            "FROM transfers t LEFT JOIN users u ON u.id = t.transferred_by "
+            "SELECT t.*, u.name AS transferred_by_name, "
+            "cu.name AS confirmed_by_name "
+            "FROM transfers t "
+            "LEFT JOIN users u ON u.id = t.transferred_by "
+            "LEFT JOIN users cu ON cu.id = t.confirmed_by "
             "ORDER BY t.transferred_at DESC LIMIT $1",
             limit,
         )
     return _db.rl(rows)
+
+
+class TransferConfirmIn(BaseModel):
+    barcode: str
+
+
+@api.post("/storage/transfers/confirm-putaway")
+async def confirm_transfer_putaway(
+    body: TransferConfirmIn,
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    """Scan a pallet barcode or destination location code to confirm physical putaway.
+    Matches against all transfers with status='initiated'."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        scanned = body.barcode.strip()
+        t = await conn.fetchrow(
+            "SELECT * FROM transfers WHERE status='initiated' AND (pallet_code=$1 OR to_code=$1)",
+            scanned,
+        )
+        if not t:
+            raise HTTPException(404, f"No pending transfer found for '{scanned}'")
+        ts = now_iso()
+        await conn.execute(
+            "UPDATE transfers SET status='confirmed', confirmed_at=$1, confirmed_by=$2 WHERE id=$3",
+            ts, user["id"], t["id"],
+        )
+    return {
+        "ok": True,
+        "transfer_id": t["id"],
+        "pallet_code": t["pallet_code"],
+        "to_code": t["to_code"],
+        "confirmed_at": ts,
+    }
 
 
 # ---------- Inbound ----------

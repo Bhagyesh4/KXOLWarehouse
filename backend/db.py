@@ -205,11 +205,19 @@ CREATE TABLE IF NOT EXISTS transfers (
     to_code          TEXT NOT NULL,
     notes            TEXT,
     transferred_by   TEXT NOT NULL,
-    transferred_at   TEXT NOT NULL
+    transferred_at   TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'initiated',
+    confirmed_at     TEXT,
+    confirmed_by     TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_transfer_ts  ON transfers(transferred_at);
-CREATE INDEX IF NOT EXISTS idx_transfer_sku ON transfers(sku_id);
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS status       TEXT NOT NULL DEFAULT 'initiated';
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS confirmed_at TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS confirmed_by TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_transfer_ts     ON transfers(transferred_at);
+CREATE INDEX IF NOT EXISTS idx_transfer_sku    ON transfers(sku_id);
+CREATE INDEX IF NOT EXISTS idx_transfer_status ON transfers(status);
 
 CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
