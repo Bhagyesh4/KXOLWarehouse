@@ -5,6 +5,8 @@ import { Search, Plus, X, Trash2, Edit3, ScanLine } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Scanner from "../components/Scanner";
 
+const BAG_COLOR_HEX = { Green: "#22c55e", White: "#e5e7eb", Yellow: "#eab308" };
+
 export default function Inventory() {
     const { user } = useAuth();
     const [skus, setSkus] = useState([]);
@@ -126,7 +128,19 @@ export default function Inventory() {
                                     <td className="py-3 px-4 font-mono text-amber-400">{s.sku_code}</td>
                                     <td className="py-3 px-4">{s.name}</td>
                                     <td className="py-3 px-4 text-gray-400">{s.category}</td>
-                                    <td className="py-3 px-4 text-gray-400">{s.bag_color || "—"}</td>
+                                    <td className="py-3 px-4 text-gray-400">
+                                        {s.bag_color ? (
+                                            <span className="inline-flex items-center gap-2">
+                                                <span
+                                                    className="inline-block w-2.5 h-2.5 rounded-full border border-white/30"
+                                                    style={{ backgroundColor: BAG_COLOR_HEX[s.bag_color] || "#6b7280" }}
+                                                />
+                                                {s.bag_color}
+                                            </span>
+                                        ) : (
+                                            "—"
+                                        )}
+                                    </td>
                                     <td className="py-3 px-4 text-right font-mono">${s.unit_price.toFixed(2)}</td>
                                     <td className="py-3 px-4 text-right font-mono">{s.total_stock}</td>
                                     <td className="py-3 px-4 text-right font-mono text-gray-500">{s.reorder_level}</td>
@@ -209,7 +223,22 @@ export default function Inventory() {
                             </div>
                             <div className="space-y-2 font-mono text-sm">
                                 <Detail label="Category" value={view.category} />
-                                <Detail label="Bag Color" value={view.bag_color || "—"} />
+                                <Detail
+                                    label="Bag Color"
+                                    value={
+                                        view.bag_color ? (
+                                            <span className="inline-flex items-center gap-2">
+                                                <span
+                                                    className="inline-block w-2.5 h-2.5 rounded-full border border-white/30"
+                                                    style={{ backgroundColor: BAG_COLOR_HEX[view.bag_color] || "#6b7280" }}
+                                                />
+                                                {view.bag_color}
+                                            </span>
+                                        ) : (
+                                            "—"
+                                        )
+                                    }
+                                />
                                 <Detail label="Weight per Bag" value={view.weight_per_bag != null ? view.weight_per_bag : "—"} />
                                 <Detail label="Bags per Pallet" value={view.bags_per_pallet != null ? view.bags_per_pallet : "—"} />
                                 <Detail label="Dimensions" value={view.dimensions || "—"} />
@@ -334,7 +363,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                     <FormField label="Name" value={f.name} onChange={(v) => setF({ ...f, name: v })} testid="form-sku-name" />
                     <FormField label="Category" value={f.category} onChange={(v) => setF({ ...f, category: v })} testid="form-sku-category" />
                     <div className="grid grid-cols-2 gap-3">
-                        <FormField label="Bag Color" type="select" options={["Green", "White", "Yellow"]} placeholder="Select color" value={f.bag_color} onChange={(v) => setF({ ...f, bag_color: v })} testid="form-sku-bag-color" />
+                        <FormField label="Bag Color" type="select" options={["Green", "White", "Yellow"]} colorMap={BAG_COLOR_HEX} placeholder="Select color" value={f.bag_color} onChange={(v) => setF({ ...f, bag_color: v })} testid="form-sku-bag-color" />
                         <FormField label="Weight per Bag" type="number" step="0.01" min="0" value={f.weight_per_bag} onChange={(v) => setF({ ...f, weight_per_bag: v })} testid="form-sku-weight" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -361,7 +390,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
     );
 }
 
-function FormField({ label, value, onChange, type = "text", disabled, testid, options, placeholder, step, min }) {
+function FormField({ label, value, onChange, type = "text", disabled, testid, options, placeholder, step, min, colorMap }) {
     const cls =
         "w-full mt-1 bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60";
     return (
@@ -370,23 +399,36 @@ function FormField({ label, value, onChange, type = "text", disabled, testid, op
                 {label}
             </label>
             {type === "select" ? (
-                <select
-                    data-testid={testid}
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    disabled={disabled}
-                    required
-                    className={cls}
-                >
-                    <option value="" disabled>
-                        {placeholder || "Select..."}
-                    </option>
-                    {(options || []).map((opt) => (
-                        <option key={opt} value={opt}>
-                            {opt}
+                <div className="relative">
+                    {colorMap && value && (
+                        <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border border-white/30"
+                            style={{ backgroundColor: colorMap[value] || "#6b7280" }}
+                        />
+                    )}
+                    <select
+                        data-testid={testid}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        disabled={disabled}
+                        required
+                        className={`${cls} ${colorMap && value ? "pl-8" : ""}`}
+                    >
+                        <option value="" disabled>
+                            {placeholder || "Select..."}
                         </option>
-                    ))}
-                </select>
+                        {(options || []).map((opt) => (
+                            <option
+                                key={opt}
+                                value={opt}
+                                style={colorMap ? { color: colorMap[opt] || "#e5e7eb" } : undefined}
+                            >
+                                {opt}
+                            </option>
+                        ))}
+                    </select>
+                </div>
             ) : (
                 <input
                     data-testid={testid}
