@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field, EmailStr
 import db as _db
 
 # ---------- App ----------
-app = FastAPI(title="Warehouse Management System API")
+app = FastAPI(title="FrostCore API")
 api = APIRouter(prefix="/api")
 
 JWT_ALGO = "HS256"
@@ -2320,4 +2320,4 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 @api.get("/")
 async def root():
-    return {"app": "WMS API", "status": "ok", "db": "postgresql"}
+    return {"app": "FrostCore API", "status": "ok", "db": "postgresql"}

@@ -45,7 +45,7 @@ export default function PrintGRN() {
             <div className="doc max-w-4xl mx-auto bg-white p-12 my-6">
                 <div className="flex items-start justify-between border-b-2 border-black pb-4 mb-6">
                     <div>
-                        <div className="text-xs uppercase tracking-[0.3em] text-gray-500">Warehouse OS</div>
+                        <div className="text-xs uppercase tracking-[0.3em] text-gray-500">FrostCore</div>
                         <h1 className="text-3xl font-bold mt-1">GOODS RECEIPT NOTE</h1>
                     </div>
                     <div className="text-right">
@@ -133,7 +133,7 @@ export default function PrintGRN() {
                 </div>
 
                 <div className="mt-8 text-[10px] text-gray-400 text-center">
-                    Generated {new Date().toLocaleString()} · Warehouse OS Control Center
+                    Generated {new Date().toLocaleString()} · FrostCore
                 </div>
             </div>
         </div>

@@ -1,7 +1,7 @@
-# Warehouse Management System (WMS)
+# FrostCore
 
 ## Overview
-A full-stack Warehouse Management System optimized for cold-storage facilities. Features inventory tracking, inbound/outbound logistics, storage layout visualization, and AI-powered reporting.
+FrostCore is a full-stack Warehouse Management System optimized for cold-storage facilities. Features inventory tracking, inbound/outbound logistics, storage layout visualization, and AI-powered reporting.
 
 ## Architecture
 - **Frontend**: React 19 + Tailwind CSS + Shadcn UI, running on port 5000 via CRACO

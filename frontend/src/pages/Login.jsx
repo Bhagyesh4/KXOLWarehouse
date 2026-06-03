@@ -45,7 +45,7 @@ export default function Login() {
                         </div>
                         <div>
                             <div className="text-[10px] tracking-[0.3em] text-amber-400 uppercase">
-                                Warehouse OS
+                                FrostCore
                             </div>
                             <div className="font-bold tracking-tight">
                                 CONTROL CENTER

@@ -44,7 +44,7 @@ export default function Layout() {
                     </div>
                     <div>
                         <div className="text-[10px] tracking-[0.2em] text-gray-500 uppercase font-semibold">
-                            Warehouse OS
+                            FrostCore
                         </div>
                         <div className="text-sm font-bold tracking-tight">
                             CONTROL CENTER
@@ -130,7 +130,7 @@ export default function Layout() {
                             ● ONLINE
                         </div>
                         <div className="font-mono text-xs text-gray-500">
-                            WMS · v1.0.0
+                            FrostCore · v1.0.0
                         </div>
                     </div>
                     <div className="font-mono text-xs text-gray-400 hidden md:block">

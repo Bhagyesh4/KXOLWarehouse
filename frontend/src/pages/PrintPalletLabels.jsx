@@ -127,7 +127,7 @@ function PalletLabel({ item, order, index, total }) {
                 }}
             >
                 <div style={{ fontSize: "9px", letterSpacing: "0.2em", textTransform: "uppercase" }}>
-                    WAREHOUSE OS · COLD STORAGE
+                    FROSTCORE · COLD STORAGE
                 </div>
                 <div style={{ fontSize: "9px", color: "#9ca3af", letterSpacing: "0.1em" }}>
                     PLT {index + 1}/{total}
@@ -192,7 +192,7 @@ function PalletLabel({ item, order, index, total }) {
                 </div>
 
                 <div style={{ marginTop: "6px", fontSize: "8px", color: "#9ca3af", textAlign: "right" }}>
-                    Generated {new Date().toLocaleString()} · Warehouse OS
+                    Generated {new Date().toLocaleString()} · FrostCore
                 </div>
             </div>
         </div>
