@@ -13,6 +13,11 @@ export default function PrintGRN() {
 
     if (!data) return <div className="p-12 text-center text-gray-500">Loading...</div>;
 
+    const lineWeight = (it) =>
+        it.sku?.weight_per_bag != null ? Number(it.sku.weight_per_bag) * (it.qty || 0) : null;
+    const totalWeight = data.items.reduce((sum, it) => sum + (lineWeight(it) || 0), 0);
+    const fmtKg = (n) => `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
+
     return (
         <div className="bg-white text-black min-h-screen">
             <style>{`
@@ -69,10 +74,12 @@ export default function PrintGRN() {
                             <tr className="border-b-2 border-black">
                                 <th className="text-left py-2 font-mono text-xs uppercase">SKU</th>
                                 <th className="text-left py-2 font-mono text-xs uppercase">Description</th>
+                                <th className="text-left py-2 font-mono text-xs uppercase">Bag</th>
                                 <th className="text-left py-2 font-mono text-xs uppercase">Location</th>
                                 <th className="text-left py-2 font-mono text-xs uppercase">Batch</th>
                                 <th className="text-left py-2 font-mono text-xs uppercase">Expiry</th>
                                 <th className="text-right py-2 font-mono text-xs uppercase">Qty</th>
+                                <th className="text-right py-2 font-mono text-xs uppercase">Weight</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -80,13 +87,33 @@ export default function PrintGRN() {
                                 <tr key={i} className="border-b border-gray-300">
                                     <td className="py-2 font-mono">{it.sku?.sku_code}</td>
                                     <td className="py-2">{it.sku?.name}</td>
+                                    <td className="py-2 font-mono text-xs">
+                                        {it.sku?.bag_color || "—"}
+                                        {it.sku?.bags_per_pallet != null && (
+                                            <span className="text-gray-500"> · {it.sku.bags_per_pallet}/plt</span>
+                                        )}
+                                    </td>
                                     <td className="py-2 font-mono text-xs">{it.location?.code}</td>
                                     <td className="py-2 font-mono text-xs">{it.batch_no || "—"}</td>
                                     <td className="py-2 font-mono text-xs">{it.expiry_date || "—"}</td>
                                     <td className="py-2 text-right font-mono">{it.qty}</td>
+                                    <td className="py-2 text-right font-mono">
+                                        {lineWeight(it) != null ? fmtKg(lineWeight(it)) : "—"}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
+                        <tfoot>
+                            <tr className="border-t-2 border-black font-bold">
+                                <td className="py-2 font-mono text-xs uppercase" colSpan={6}>
+                                    Total Weight
+                                </td>
+                                <td className="py-2 text-right font-mono">
+                                    {data.items.reduce((s, it) => s + (it.qty || 0), 0)}
+                                </td>
+                                <td className="py-2 text-right font-mono">{fmtKg(totalWeight)}</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
 

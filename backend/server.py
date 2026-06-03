@@ -1220,7 +1220,11 @@ async def inbound_grn(order_id: str, user: dict = Depends(get_user)):
         items = await conn.fetch("SELECT * FROM inbound_items WHERE inbound_id=$1", order_id)
         enriched = []
         for it in items:
-            sku = await conn.fetchrow("SELECT sku_code, name, unit FROM skus WHERE id=$1", it["sku_id"])
+            sku = await conn.fetchrow(
+                "SELECT sku_code, name, unit, bag_color, weight_per_bag, bags_per_pallet, dimensions "
+                "FROM skus WHERE id=$1",
+                it["sku_id"],
+            )
             loc = await conn.fetchrow("SELECT code FROM locations WHERE id=$1", it["location_id"])
             enriched.append({**dict(it), "sku": dict(sku) if sku else None, "location": dict(loc) if loc else None})
     order = dict(row)
@@ -1238,7 +1242,11 @@ async def outbound_picklist(order_id: str, user: dict = Depends(get_user)):
         items = await conn.fetch("SELECT * FROM outbound_items WHERE outbound_id=$1", order_id)
         enriched = []
         for it in items:
-            sku = await conn.fetchrow("SELECT sku_code, name, unit FROM skus WHERE id=$1", it["sku_id"])
+            sku = await conn.fetchrow(
+                "SELECT sku_code, name, unit, bag_color, weight_per_bag, bags_per_pallet, dimensions "
+                "FROM skus WHERE id=$1",
+                it["sku_id"],
+            )
             pallets = await conn.fetch(
                 "SELECT * FROM stock WHERE sku_id=$1 AND qty > 0 ORDER BY expiry_date NULLS LAST",
                 it["sku_id"],
@@ -1460,6 +1468,14 @@ async def ai_insights(user: dict = Depends(get_user)):
             "SELECT sku_code, name, total_stock, reorder_level FROM skus "
             "WHERE total_stock <= reorder_level ORDER BY total_stock LIMIT 10"
         )
+        weight_rows = await conn.fetch(
+            "SELECT category, COALESCE(SUM(weight_per_bag * total_stock), 0) AS weight FROM skus "
+            "GROUP BY category ORDER BY weight DESC"
+        )
+    total_weight = sum(float(w["weight"] or 0) for w in weight_rows)
+    weight_lines = chr(10).join(
+        [f"  - {w['category']}: {float(w['weight'] or 0):,.1f} kg" for w in weight_rows]
+    )
     context = f"""
 WAREHOUSE PERFORMANCE SNAPSHOT
 - Total SKUs: {summary['total_skus']}
@@ -1478,6 +1494,10 @@ TOP MOVING SKUs:
 
 CATEGORY DISTRIBUTION:
 {chr(10).join([f"  - {c['category']}: {c['count']} SKUs, {c['stock']} units" for c in cats])}
+
+STORED WEIGHT (weight_per_bag x on-hand bags):
+- Total stored weight: {total_weight:,.1f} kg
+{weight_lines}
 """
     try:
         import anthropic as _anthropic

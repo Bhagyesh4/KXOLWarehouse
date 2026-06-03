@@ -13,6 +13,10 @@ export default function PrintPickList() {
 
     if (!data) return <div className="p-12 text-center text-gray-500">Loading...</div>;
 
+    const fmtKg = (n) => `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
+    const lineWeight = (it) =>
+        it.sku?.weight_per_bag != null ? Number(it.sku.weight_per_bag) * (it.qty || 0) : null;
+
     return (
         <div className="bg-white text-black min-h-screen">
             <style>{`
@@ -67,12 +71,26 @@ export default function PrintPickList() {
                                     </div>
                                     <div className="font-mono font-bold">{it.sku?.sku_code}</div>
                                     <div className="text-sm">{it.sku?.name}</div>
+                                    {(it.sku?.bag_color || it.sku?.bags_per_pallet != null) && (
+                                        <div className="font-mono text-xs text-gray-500 mt-1">
+                                            {it.sku?.bag_color && <span>Bag: {it.sku.bag_color}</span>}
+                                            {it.sku?.bag_color && it.sku?.bags_per_pallet != null && " · "}
+                                            {it.sku?.bags_per_pallet != null && (
+                                                <span>{it.sku.bags_per_pallet} bags/pallet</span>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="text-right">
                                     <div className="font-mono text-xs text-gray-500 uppercase">
                                         Total Qty
                                     </div>
                                     <div className="font-mono text-2xl font-bold">{it.qty}</div>
+                                    {lineWeight(it) != null && (
+                                        <div className="font-mono text-xs text-gray-500 mt-1">
+                                            {fmtKg(lineWeight(it))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

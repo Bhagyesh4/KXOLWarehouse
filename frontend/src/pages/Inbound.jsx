@@ -14,6 +14,26 @@ import {
 import { useAuth } from "../context/AuthContext";
 import PutawayModal from "../components/PutawayModal";
 
+const BAG_COLOR_HEX = { Green: "#22c55e", White: "#e5e7eb", Yellow: "#eab308" };
+
+function BagMeta({ sku }) {
+    if (!sku || (!sku.bag_color && sku.bags_per_pallet == null)) return null;
+    return (
+        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500 font-mono">
+            {sku.bag_color && (
+                <span className="flex items-center gap-1">
+                    <span
+                        className="inline-block w-2 h-2 rounded-full border border-white/20"
+                        style={{ backgroundColor: BAG_COLOR_HEX[sku.bag_color] || "#6b7280" }}
+                    />
+                    {sku.bag_color}
+                </span>
+            )}
+            {sku.bags_per_pallet != null && <span>{sku.bags_per_pallet} bags/plt</span>}
+        </div>
+    );
+}
+
 export default function Inbound() {
     const { user } = useAuth();
     const [orders, setOrders] = useState([]);
@@ -198,22 +218,25 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
                                 {o.items.map((it, i) => (
                                     <div
                                         key={i}
-                                        className="flex justify-between text-xs font-mono border-b border-white/5 py-1"
+                                        className="border-b border-white/5 py-1"
                                     >
-                                        <span
-                                            className={`truncate flex items-center gap-1.5 ${
-                                                it.putaway_confirmed
-                                                    ? "text-emerald-400"
-                                                    : "text-gray-300"
-                                            }`}
-                                        >
-                                            {it.putaway_confirmed && (
-                                                <CheckCircle2 size={10} />
-                                            )}
-                                            {skuMap[it.sku_id]?.sku_code || "—"} →{" "}
-                                            {locMap[it.location_id]?.code || "—"}
-                                        </span>
-                                        <span className="text-amber-400 ml-2">{it.qty}</span>
+                                        <div className="flex justify-between text-xs font-mono">
+                                            <span
+                                                className={`truncate flex items-center gap-1.5 ${
+                                                    it.putaway_confirmed
+                                                        ? "text-emerald-400"
+                                                        : "text-gray-300"
+                                                }`}
+                                            >
+                                                {it.putaway_confirmed && (
+                                                    <CheckCircle2 size={10} />
+                                                )}
+                                                {skuMap[it.sku_id]?.sku_code || "—"} →{" "}
+                                                {locMap[it.location_id]?.code || "—"}
+                                            </span>
+                                            <span className="text-amber-400 ml-2">{it.qty}</span>
+                                        </div>
+                                        <BagMeta sku={skuMap[it.sku_id]} />
                                     </div>
                                 ))}
                             </div>
