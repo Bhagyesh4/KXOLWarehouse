@@ -10,6 +10,7 @@ import {
     ClipboardList,
     ScanBarcode,
     Tag,
+    Warehouse,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import PutawayModal from "../components/PutawayModal";
@@ -41,20 +42,23 @@ export default function Inbound() {
     const [orders, setOrders] = useState([]);
     const [skus, setSkus] = useState([]);
     const [locs, setLocs] = useState([]);
+    const [zones, setZones] = useState([]);
     const [open, setOpen] = useState(false);
     const [putawayOrder, setPutawayOrder] = useState(null);
 
     const canCreate = user?.role === "admin" || user?.role === "manager";
 
     const load = async () => {
-        const [a, b, c] = await Promise.all([
+        const [a, b, c, d] = await Promise.all([
             api.get("/inbound"),
             api.get("/inventory/skus"),
             api.get("/storage/locations"),
+            api.get("/storage/zones"),
         ]);
         setOrders(a.data);
         setSkus(b.data);
         setLocs(c.data);
+        setZones(d.data);
     };
 
     useEffect(() => {
@@ -121,7 +125,8 @@ export default function Inbound() {
             </div>
 
             {open && (
-                <NewInboundModal
+                <NewInboundFlow
+                    zones={zones}
                     skus={skus}
                     locs={locs}
                     onClose={() => setOpen(false)}
@@ -316,7 +321,337 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
     );
 }
 
-function NewInboundModal({ skus, locs, onClose, onSaved }) {
+/* ─── New Inbound Flow: Warehouse → Location → Purchase Order ─── */
+function NewInboundFlow({ zones, skus, locs, onClose, onSaved }) {
+    const [step, setStep] = useState("warehouse");
+    const [zone, setZone] = useState(null);
+    const [location, setLocation] = useState(null);
+
+    const selectZone = (z) => {
+        if (zone?.zone !== z.zone) setLocation(null);
+        setZone(z);
+    };
+
+    if (step === "warehouse")
+        return (
+            <WarehouseStep
+                zones={zones}
+                selected={zone}
+                onSelect={selectZone}
+                onClose={onClose}
+                onNext={() => zone && setStep("location")}
+            />
+        );
+
+    if (step === "location")
+        return (
+            <LocationStep
+                zone={zone}
+                locs={locs}
+                selected={location}
+                onSelect={setLocation}
+                onClose={onClose}
+                onBack={() => setStep("warehouse")}
+                onConfirm={() => location && setStep("form")}
+            />
+        );
+
+    return (
+        <NewInboundModal
+            skus={skus}
+            zone={zone}
+            location={location}
+            onBack={() => setStep("location")}
+            onClose={onClose}
+            onSaved={onSaved}
+        />
+    );
+}
+
+function FlowShell({ maxW = "max-w-2xl", onClose, children }) {
+    return (
+        <div
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={onClose}
+        >
+            <div
+                className={`bg-[#181a20] border border-white/10 ${maxW} w-full my-8`}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {children}
+            </div>
+        </div>
+    );
+}
+
+function FlowHeader({ step, title, subtitle, onClose }) {
+    return (
+        <div className="flex items-center justify-between p-5 border-b border-white/10">
+            <div>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
+                    NEW INBOUND // STEP {step} OF 3
+                </div>
+                <h3 className="text-lg font-bold mt-1">{title}</h3>
+                {subtitle && (
+                    <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>
+                )}
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-white">
+                <X size={18} />
+            </button>
+        </div>
+    );
+}
+
+/* Step 1 — pick the destination warehouse (zone). */
+function WarehouseStep({ zones, selected, onSelect, onClose, onNext }) {
+    const active = (zones || []).filter((z) => !z.placeholder);
+    return (
+        <FlowShell onClose={onClose}>
+            <FlowHeader
+                step="1"
+                title="Select Warehouse"
+                subtitle="Choose the destination warehouse for this purchase order."
+                onClose={onClose}
+            />
+            <div className="p-5">
+                {active.length === 0 ? (
+                    <div className="text-sm text-gray-500 text-center py-8 font-mono">
+                        No active warehouses available. Configure a zone in Storage first.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {active.map((z) => {
+                            const isSel = selected?.zone === z.zone;
+                            const pct = z.capacity
+                                ? Math.round((z.occupied / z.capacity) * 100)
+                                : 0;
+                            return (
+                                <button
+                                    key={z.zone}
+                                    type="button"
+                                    onClick={() => onSelect(z)}
+                                    data-testid={`wh-zone-${z.zone}`}
+                                    className={`text-left p-4 border transition-colors ${
+                                        isSel
+                                            ? "border-amber-500 bg-amber-500/5"
+                                            : "border-white/10 bg-[#0d0e12] hover:border-amber-500/40"
+                                    }`}
+                                >
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase flex items-center gap-1.5">
+                                                <Warehouse size={11} className="text-amber-400" />
+                                                {z.zone}
+                                            </div>
+                                            <div className="text-sm text-white mt-0.5 truncate">
+                                                {z.name}
+                                            </div>
+                                        </div>
+                                        <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                            Active
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-3 font-mono text-[10px] text-gray-500">
+                                        {z.temperature !== null && z.temperature !== undefined && (
+                                            <span className={z.temperature < 0 ? "text-cyan-400" : "text-amber-400"}>
+                                                {z.temperature}°C
+                                            </span>
+                                        )}
+                                        <span>{z.bins} slots</span>
+                                        <span>{pct}% full</span>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+            <div className="flex gap-2 p-5 border-t border-white/10">
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    onClick={onNext}
+                    disabled={!selected}
+                    data-testid="wh-continue-btn"
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Continue →
+                </button>
+            </div>
+        </FlowShell>
+    );
+}
+
+/* Step 2 — pick the exact location from the interactive rack layout. */
+function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfirm }) {
+    const zoneLocs = (locs || []).filter((l) => l.zone === zone.zone);
+
+    // Group locations into rows → lanes for an interactive rack layout.
+    const byRow = {};
+    zoneLocs.forEach((l) => {
+        const row = l.row_label || "?";
+        const lane = l.lane_number ?? 0;
+        byRow[row] = byRow[row] || {};
+        byRow[row][lane] = byRow[row][lane] || [];
+        byRow[row][lane].push(l);
+    });
+    const rows = Object.keys(byRow).sort();
+
+    return (
+        <FlowShell maxW="max-w-4xl" onClose={onClose}>
+            <FlowHeader
+                step="2"
+                title={`Select Location — ${zone.name}`}
+                subtitle="Click a bin on the rack layout to choose the exact storage location."
+                onClose={onClose}
+            />
+            <div className="p-5 max-h-[55vh] overflow-y-auto space-y-6">
+                {zoneLocs.length === 0 ? (
+                    <div className="text-sm text-gray-500 text-center py-8 font-mono">
+                        No locations configured for this warehouse.
+                    </div>
+                ) : (
+                    rows.map((row) => {
+                        const lanes = Object.keys(byRow[row])
+                            .map(Number)
+                            .sort((a, b) => a - b);
+                        return (
+                            <div key={row}>
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-7 h-7 bg-amber-500 text-black flex items-center justify-center font-bold text-sm">
+                                        {row}
+                                    </div>
+                                    <div className="font-mono text-xs font-semibold">ROW {row}</div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    {lanes.map((lane) => {
+                                        const bins = byRow[row][lane];
+                                        const levels = [...new Set(bins.map((b) => b.level || 1))].sort((a, b) => b - a);
+                                        const positions = [...new Set(bins.map((b) => b.position || 1))].sort((a, b) => a - b);
+                                        const lookup = {};
+                                        bins.forEach((b) => {
+                                            lookup[`${b.level || 1}-${b.position || 1}`] = b;
+                                        });
+                                        return (
+                                            <div key={lane} className="border border-white/10 bg-[#0d0e12] p-3">
+                                                <div className="font-mono text-[10px] text-gray-500 uppercase tracking-wider mb-2">
+                                                    LANE L{String(lane).padStart(2, "0")}
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {levels.map((lv) => (
+                                                        <div key={lv} className="flex items-center gap-1">
+                                                            <span className="w-7 shrink-0 font-mono text-[9px] text-gray-600">
+                                                                LV{lv}
+                                                            </span>
+                                                            <div className="flex gap-1 flex-wrap">
+                                                                {positions.map((pos) => {
+                                                                    const loc = lookup[`${lv}-${pos}`];
+                                                                    if (!loc)
+                                                                        return <span key={pos} className="w-9 h-7" />;
+                                                                    const occupied = (loc.occupied || 0) > 0;
+                                                                    const isSel = selected?.id === loc.id;
+                                                                    return (
+                                                                        <button
+                                                                            key={pos}
+                                                                            type="button"
+                                                                            title={loc.code}
+                                                                            onClick={() => onSelect(loc)}
+                                                                            data-testid={`loc-cell-${loc.code}`}
+                                                                            className={`w-9 h-7 flex items-center justify-center font-mono text-[10px] border transition-colors ${
+                                                                                isSel
+                                                                                    ? "border-amber-500 bg-amber-500/30 text-amber-200 ring-1 ring-amber-500"
+                                                                                    : occupied
+                                                                                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:border-amber-500/50"
+                                                                                      : "border-white/10 bg-white/5 text-gray-500 hover:border-amber-500/50 hover:text-amber-400"
+                                                                            }`}
+                                                                        >
+                                                                            P{String(pos).padStart(2, "0")}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+
+                {zoneLocs.length > 0 && (
+                    <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-widest pt-1">
+                        <span className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 bg-white/5 border border-white/10" />
+                            <span className="text-gray-500">Empty</span>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 bg-emerald-500/10 border border-emerald-500/40" />
+                            <span className="text-gray-500">Occupied</span>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 bg-amber-500/30 border border-amber-500" />
+                            <span className="text-amber-400">Selected</span>
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            {selected && (
+                <div className="px-5 py-3 border-t border-white/10 bg-amber-500/5">
+                    <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400 mb-1">
+                        // SELECTED LOCATION
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs">
+                        <span className="text-amber-400 font-bold" data-testid="selected-loc-code">
+                            {selected.code}
+                        </span>
+                        <span className="text-gray-500">Row {selected.row_label || "—"}</span>
+                        <span className="text-gray-500">
+                            Lane L{String(selected.lane_number ?? 0).padStart(2, "0")}
+                        </span>
+                        <span className="text-gray-500">Level {selected.level ?? "—"}</span>
+                        <span className="text-gray-500">Pos {selected.position ?? "—"}</span>
+                        <span className={(selected.occupied || 0) > 0 ? "text-emerald-400" : "text-gray-500"}>
+                            {selected.occupied || 0}/{selected.capacity ?? "—"} pallets
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex gap-2 p-5 border-t border-white/10">
+                <button
+                    type="button"
+                    onClick={onBack}
+                    className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white"
+                >
+                    ← Back
+                </button>
+                <button
+                    type="button"
+                    onClick={onConfirm}
+                    disabled={!selected}
+                    data-testid="loc-confirm-btn"
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-sm py-2.5 uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Confirm Location →
+                </button>
+            </div>
+        </FlowShell>
+    );
+}
+
+function NewInboundModal({ skus, zone, location, onBack, onClose, onSaved }) {
     const [form, setForm] = useState({
         po_number: `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
         supplier: "",
@@ -325,7 +660,6 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
             {
                 sku_id: "",
                 qty: 1,
-                location_id: "",
                 bag_color: "",
                 batch_no: "",
                 manufacture_date: "",
@@ -341,9 +675,10 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
         setBusy(true);
         setErr("");
         try {
+            if (!location?.id) throw new Error("No location selected.");
             const items = form.items
-                .filter((i) => i.sku_id && i.location_id && i.qty > 0)
-                .map((i) => ({ ...i, qty: parseInt(i.qty) }));
+                .filter((i) => i.sku_id && i.qty > 0)
+                .map((i) => ({ ...i, qty: parseInt(i.qty), location_id: location.id }));
             if (!items.length) throw new Error("Add at least one item.");
             await api.post("/inbound", { ...form, items });
             onSaved();
@@ -362,7 +697,6 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                 {
                     sku_id: "",
                     qty: 1,
-                    location_id: "",
                     bag_color: "",
                     batch_no: "",
                     manufacture_date: "",
@@ -402,7 +736,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                 <div className="flex items-center justify-between p-5 border-b border-white/10">
                     <div>
                         <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
-                            NEW INBOUND
+                            NEW INBOUND // STEP 3 OF 3
                         </div>
                         <h3 className="text-lg font-bold mt-1">Create Purchase Order</h3>
                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
@@ -415,6 +749,29 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                     </button>
                 </div>
                 <form onSubmit={submit} className="p-5 space-y-4">
+                    <div className="border border-amber-500/30 bg-amber-500/5 p-3" data-testid="po-destination">
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400 mb-1.5">
+                            // DESTINATION (LOCKED)
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs">
+                            <span className="text-gray-500 flex items-center gap-1.5">
+                                <Warehouse size={11} className="text-amber-400" />
+                                Warehouse <span className="text-white">{zone?.name}</span>
+                                <span className="text-gray-600">({zone?.zone})</span>
+                            </span>
+                            <span className="text-gray-500">
+                                Location <span className="text-amber-400 font-bold">{location?.code}</span>
+                            </span>
+                            <button
+                                type="button"
+                                onClick={onBack}
+                                className="text-amber-400 hover:text-amber-300 underline ml-auto"
+                            >
+                                Change
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-3 gap-3">
                         <Field
                             label="PO Number"
@@ -463,39 +820,13 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                                             onChange={(e) =>
                                                 selectSku(i, e.target.value)
                                             }
-                                            className="col-span-5 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
+                                            className="col-span-8 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
                                         >
                                             <option value="">— Select SKU —</option>
                                             {skus.map((s) => (
                                                 <option key={s.id} value={s.id}>
                                                     {s.sku_code} · {s.name}
                                                 </option>
-                                            ))}
-                                        </select>
-                                        <select
-                                            data-testid={`inbound-item-loc-${i}`}
-                                            value={it.location_id}
-                                            onChange={(e) =>
-                                                updateRow(i, "location_id", e.target.value)
-                                            }
-                                            className="col-span-4 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
-                                        >
-                                            <option value="">— Bin/Rack —</option>
-                                            {Object.entries(
-                                                locs.reduce((acc, l) => {
-                                                    const z = l.zone || "Other";
-                                                    if (!acc[z]) acc[z] = [];
-                                                    acc[z].push(l);
-                                                    return acc;
-                                                }, {})
-                                            ).map(([zone, bins]) => (
-                                                <optgroup key={zone} label={`── ${zone} ──`}>
-                                                    {bins.map((l) => (
-                                                        <option key={l.id} value={l.id}>
-                                                            {l.code}
-                                                        </option>
-                                                    ))}
-                                                </optgroup>
                                             ))}
                                         </select>
                                         <input
@@ -505,7 +836,7 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                                             value={it.qty}
                                             onChange={(e) => updateRow(i, "qty", e.target.value)}
                                             placeholder="Qty"
-                                            className="col-span-2 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
+                                            className="col-span-3 bg-[#090a0c] border border-white/10 px-2 py-2 text-xs font-mono"
                                         />
                                         <button
                                             type="button"
@@ -576,14 +907,24 @@ function NewInboundModal({ skus, locs, onClose, onSaved }) {
                     </div>
 
                     {err && <div className="text-xs text-red-400 font-mono">{err}</div>}
-                    <button
-                        type="submit"
-                        disabled={busy}
-                        data-testid="submit-inbound-btn"
-                        className="w-full bg-amber-500 hover:bg-amber-600 text-black font-bold tracking-wider uppercase text-sm py-2.5 disabled:opacity-60"
-                    >
-                        {busy ? "Creating..." : "Create Purchase Order"}
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={onBack}
+                            disabled={busy}
+                            className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white disabled:opacity-60"
+                        >
+                            ← Back
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={busy}
+                            data-testid="submit-inbound-btn"
+                            className="flex-[2] bg-amber-500 hover:bg-amber-600 text-black font-bold tracking-wider uppercase text-sm py-2.5 disabled:opacity-60"
+                        >
+                            {busy ? "Creating..." : "Create Purchase Order"}
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
