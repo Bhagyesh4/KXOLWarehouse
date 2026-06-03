@@ -18,13 +18,16 @@ import {
     AlertTriangle,
     PackagePlus,
     PackageMinus,
+    Zap,
 } from "lucide-react";
 import ZoneProvisionModal from "../components/ZoneProvisionModal";
 import RackElevationSVG from "../components/RackElevationSVG";
+import ShuttleZone from "./ShuttleZone";
 import { useAuth } from "../context/AuthContext";
 
 export default function Storage() {
     const { user } = useAuth();
+    const [view, setView] = useState("racks");
     const [zones, setZones] = useState([]);
     const [activeZone, setActiveZone] = useState(null);
     const [lanes, setLanes] = useState([]);
@@ -97,14 +100,14 @@ export default function Storage() {
             <div className="flex items-end justify-between flex-wrap gap-3">
                 <div>
                     <div className="font-mono text-[10px] tracking-[0.3em] text-amber-400 uppercase">
-                        // STORAGE // RACK SYSTEMS
+                        // STORAGE // {view === "shuttle" ? "SHUTTLE FIFO ZONE" : "RACK SYSTEMS"}
                     </div>
                     <h1 className="text-3xl font-bold tracking-tight mt-1">
                         Warehouse Storage
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    {activeZoneInfo && !activeZoneInfo.placeholder && (
+                    {view === "racks" && activeZoneInfo && !activeZoneInfo.placeholder && (
                         <div className="flex items-center gap-3 border border-cyan-500/30 bg-cyan-500/5 px-4 py-2">
                             <Snowflake className="text-cyan-400" size={18} />
                             <div>
@@ -117,7 +120,7 @@ export default function Storage() {
                             </div>
                         </div>
                     )}
-                    {isAdmin && (
+                    {view === "racks" && isAdmin && (
                         <button
                             onClick={() => setAddZoneModal(true)}
                             className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 text-xs font-bold uppercase tracking-wider"
@@ -127,6 +130,30 @@ export default function Storage() {
                     )}
                 </div>
             </div>
+
+            {/* View switcher: Rack Systems ⇄ Shuttle FIFO Zone */}
+            <div className="flex items-center gap-2 border-b border-white/10">
+                <TabButton
+                    active={view === "racks"}
+                    onClick={() => setView("racks")}
+                    icon={Layers}
+                    label="Rack Systems"
+                    testid="storage-tab-racks"
+                />
+                <TabButton
+                    active={view === "shuttle"}
+                    onClick={() => setView("shuttle")}
+                    icon={Zap}
+                    label="Shuttle FIFO Zone"
+                    testid="storage-tab-shuttle"
+                />
+            </div>
+
+            {view === "shuttle" ? (
+                <ShuttleZone embedded />
+            ) : (
+            <>
+            {/* RACK SYSTEMS VIEW */}
 
             {/* Flow Rack System Panel */}
             {flowLanes.length > 0 && (
@@ -401,7 +428,26 @@ export default function Storage() {
                     }}
                 />
             )}
+            </>
+            )}
         </div>
+    );
+}
+
+/* ─── View Tab Button ────────────────────────────────────── */
+function TabButton({ active, onClick, icon: Icon, label, testid }) {
+    return (
+        <button
+            onClick={onClick}
+            data-testid={testid}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 -mb-px transition-colors ${
+                active
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-gray-500 hover:text-gray-200"
+            }`}
+        >
+            <Icon size={14} /> {label}
+        </button>
     );
 }
 

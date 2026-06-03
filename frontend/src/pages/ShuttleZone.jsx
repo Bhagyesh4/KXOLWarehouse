@@ -18,7 +18,7 @@ const LEVELS = [
     { no: 4, label: "L04 (Top)" },
 ];
 
-export default function ShuttleZone() {
+export default function ShuttleZone({ embedded = false }) {
     const { user } = useAuth();
     const [summary, setSummary] = useState(null);
     const [laneMatrix, setLaneMatrix] = useState([]);
@@ -81,7 +81,11 @@ export default function ShuttleZone() {
                     <div className="font-mono text-[10px] tracking-[0.3em] text-cyan-400 uppercase">
                         // SHUTTLE FIFO // DEEP LANE // COLD STORAGE
                     </div>
-                    <h1 className="text-3xl font-bold tracking-tight mt-1">Shuttle Zone A</h1>
+                    {embedded ? (
+                        <h2 className="text-xl font-bold tracking-tight mt-1">Shuttle Zone A</h2>
+                    ) : (
+                        <h1 className="text-3xl font-bold tracking-tight mt-1">Shuttle Zone A</h1>
+                    )}
                 </div>
                 <div className="flex items-center gap-3">
                     {summary && (
