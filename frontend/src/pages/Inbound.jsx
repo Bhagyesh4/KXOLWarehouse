@@ -725,15 +725,9 @@ function NewInboundModal({ skus, zone, location, onBack, onClose, onSaved }) {
     };
 
     return (
-        <div
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto"
-            onClick={onClose}
-        >
-            <div
-                className="bg-[#181a20] border border-white/10 max-w-2xl w-full my-8"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="flex items-center justify-between p-5 border-b border-white/10">
+        <div className="fixed inset-0 md:left-64 z-40 bg-[#181a20] overflow-y-auto">
+            <div className="min-h-full flex flex-col">
+                <div className="sticky top-0 z-10 bg-[#111317] flex items-center justify-between px-6 py-4 border-b border-white/10">
                     <div>
                         <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
                             NEW INBOUND // STEP 3 OF 3
@@ -748,7 +742,7 @@ function NewInboundModal({ skus, zone, location, onBack, onClose, onSaved }) {
                         <X size={18} />
                     </button>
                 </div>
-                <form onSubmit={submit} className="p-5 space-y-4">
+                <form onSubmit={submit} className="flex-1 p-6 space-y-5">
                     <div className="border border-amber-500/30 bg-amber-500/5 p-3" data-testid="po-destination">
                         <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400 mb-1.5">
                             // DESTINATION (LOCKED)
