@@ -9,6 +9,7 @@ import Inventory from "./pages/Inventory";
 import Inbound from "./pages/Inbound";
 import Outbound from "./pages/Outbound";
 import Storage from "./pages/Storage";
+import Transfer from "./pages/Transfer";
 import Reports from "./pages/Reports";
 import Admin from "./pages/Admin";
 import PrintGRN from "./pages/PrintGRN";
@@ -60,6 +61,7 @@ export default function App() {
                         <Route path="/inbound" element={<Inbound />} />
                         <Route path="/outbound" element={<Outbound />} />
                         <Route path="/storage" element={<Storage />} />
+                        <Route path="/transfer" element={<Transfer />} />
                         <Route path="/shuttle" element={<Navigate to="/storage" replace />} />
                         <Route path="/reports" element={<Reports />} />
                         <Route path="/admin" element={<Admin />} />

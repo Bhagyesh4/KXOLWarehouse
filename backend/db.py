@@ -190,6 +190,27 @@ CREATE TABLE IF NOT EXISTS shuttle_movements (
     timestamp     TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS transfers (
+    id               TEXT PRIMARY KEY,
+    stock_id         TEXT NOT NULL,
+    sku_id           TEXT NOT NULL,
+    sku_code         TEXT NOT NULL,
+    sku_name         TEXT NOT NULL,
+    pallet_code      TEXT,
+    qty              INT NOT NULL,
+    bag_color        VARCHAR(50),
+    from_location_id TEXT NOT NULL,
+    from_code        TEXT NOT NULL,
+    to_location_id   TEXT NOT NULL,
+    to_code          TEXT NOT NULL,
+    notes            TEXT,
+    transferred_by   TEXT NOT NULL,
+    transferred_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_transfer_ts  ON transfers(transferred_at);
+CREATE INDEX IF NOT EXISTS idx_transfer_sku ON transfers(sku_id);
+
 CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT '0'

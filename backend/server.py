@@ -1299,6 +1299,102 @@ async def shuttle_movement_history(
     return _db.rl(rows)
 
 
+# ---------- Transfer ----------
+
+class TransferIn(BaseModel):
+    stock_id: str
+    to_location_id: str
+    notes: Optional[str] = None
+
+
+@api.get("/storage/pallets")
+async def list_pallets(user: dict = Depends(get_user)):
+    """All stock items currently placed in storage, enriched with SKU and location info."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT s.id, s.sku_id, s.qty, s.batch_no, s.expiry_date, s.received_date, "
+            "s.pallet_code, s.bag_color, s.location_id, "
+            "sk.sku_code, sk.name AS sku_name, sk.category, "
+            "l.code AS location_code, l.zone, l.zone_name "
+            "FROM stock s "
+            "JOIN skus sk ON sk.id = s.sku_id "
+            "JOIN locations l ON l.id = s.location_id "
+            "WHERE s.qty > 0 "
+            "ORDER BY l.zone, l.code, sk.sku_code"
+        )
+    return _db.rl(rows)
+
+
+@api.post("/storage/transfer")
+async def transfer_pallet(body: TransferIn, user: dict = Depends(require_role("admin", "manager"))):
+    """Move a pallet (stock record) from its current location to a different location.
+    Validates capacity, updates occupied counts, and writes an audit record."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        stock = await conn.fetchrow(
+            "SELECT s.*, sk.sku_code, sk.name AS sku_name, "
+            "l.code AS from_code, l.id AS from_loc_id "
+            "FROM stock s "
+            "JOIN skus sk ON sk.id = s.sku_id "
+            "JOIN locations l ON l.id = s.location_id "
+            "WHERE s.id = $1 AND s.qty > 0",
+            body.stock_id,
+        )
+        if not stock:
+            raise HTTPException(404, "Pallet not found or has zero quantity")
+        if stock["location_id"] == body.to_location_id:
+            raise HTTPException(400, "Source and destination are the same location")
+
+        dest = await conn.fetchrow("SELECT * FROM locations WHERE id = $1", body.to_location_id)
+        if not dest:
+            raise HTTPException(404, "Destination location not found")
+        if dest["occupied"] >= dest["capacity"]:
+            raise HTTPException(
+                409,
+                f"Destination {dest['code']} is at full capacity ({dest['capacity']}/{dest['capacity']})",
+            )
+
+        ts = now_iso()
+        tid = str(uuid.uuid4())
+
+        await conn.execute("UPDATE stock SET location_id = $1 WHERE id = $2", body.to_location_id, body.stock_id)
+        await conn.execute("UPDATE locations SET occupied = GREATEST(occupied - 1, 0) WHERE id = $1", stock["from_loc_id"])
+        await conn.execute("UPDATE locations SET occupied = occupied + 1 WHERE id = $1", body.to_location_id)
+        await conn.execute(
+            "INSERT INTO transfers (id, stock_id, sku_id, sku_code, sku_name, pallet_code, qty, bag_color, "
+            "from_location_id, from_code, to_location_id, to_code, notes, transferred_by, transferred_at) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+            tid, body.stock_id, stock["sku_id"], stock["sku_code"], stock["sku_name"],
+            stock["pallet_code"], stock["qty"], stock["bag_color"],
+            stock["from_loc_id"], stock["from_code"], body.to_location_id, dest["code"],
+            body.notes, user["id"], ts,
+        )
+
+    return {
+        "id": tid,
+        "pallet_code": stock["pallet_code"],
+        "sku_code": stock["sku_code"],
+        "from_code": stock["from_code"],
+        "to_code": dest["code"],
+        "transferred_at": ts,
+    }
+
+
+@api.get("/storage/transfers")
+async def list_transfers(limit: int = 50, user: dict = Depends(get_user)):
+    """Recent pallet transfer history, newest first."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT t.*, u.name AS transferred_by_name "
+            "FROM transfers t LEFT JOIN users u ON u.id = t.transferred_by "
+            "ORDER BY t.transferred_at DESC LIMIT $1",
+            limit,
+        )
+    return _db.rl(rows)
+
+
 # ---------- Inbound ----------
 @api.get("/inbound")
 async def list_inbound(status: Optional[str] = None, user: dict = Depends(get_user)):

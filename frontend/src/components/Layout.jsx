@@ -5,6 +5,7 @@ import {
     Package,
     ArrowDownToLine,
     ArrowUpFromLine,
+    ArrowLeftRight,
     Boxes,
     BarChart3,
     LogOut,
@@ -17,6 +18,7 @@ const NAV = [
     { to: "/inventory", label: "Inventory Master", icon: Package, testid: "nav-inventory" },
     { to: "/inbound", label: "Inbound", icon: ArrowDownToLine, testid: "nav-inbound" },
     { to: "/outbound", label: "Outbound", icon: ArrowUpFromLine, testid: "nav-outbound" },
+    { to: "/transfer", label: "Transfer", icon: ArrowLeftRight, testid: "nav-transfer" },
     { to: "/storage", label: "Warehouse Storage", icon: Boxes, testid: "nav-storage" },
     { to: "/reports", label: "Reports & Analytics", icon: BarChart3, testid: "nav-reports" },
 ];
