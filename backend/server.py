@@ -1714,6 +1714,50 @@ async def purge_data(user: dict = Depends(require_role("admin"))):
 
 
 # ════════════════════════════════════════════════════
+# ADMIN — USER MANAGEMENT
+# ════════════════════════════════════════════════════
+
+@api.get("/admin/users")
+async def list_users(user: dict = Depends(require_role("admin"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, email, name, role, created_at FROM users ORDER BY created_at"
+        )
+    return [dict(r) for r in rows]
+
+
+@api.post("/admin/users")
+async def create_user(body: RegisterIn, user: dict = Depends(require_role("admin"))):
+    email = body.email.lower()
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT id FROM users WHERE email = $1", email)
+        if existing:
+            raise HTTPException(400, "Email already registered")
+        uid = str(uuid.uuid4())
+        created = now_iso()
+        await conn.execute(
+            "INSERT INTO users (id, email, name, role, password_hash, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
+            uid, email, body.name, body.role, hash_pw(body.password), created,
+        )
+    return {"id": uid, "email": email, "name": body.name, "role": body.role, "created_at": created}
+
+
+@api.delete("/admin/users/{user_id}")
+async def delete_user(user_id: str, user: dict = Depends(require_role("admin"))):
+    if user_id == user["id"]:
+        raise HTTPException(400, "You cannot delete your own account")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        target = await conn.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+        if not target:
+            raise HTTPException(404, "User not found")
+        await conn.execute("DELETE FROM users WHERE id = $1", user_id)
+    return {"ok": True, "message": "User removed"}
+
+
+# ════════════════════════════════════════════════════
 # SEED DATA
 # ════════════════════════════════════════════════════
 
