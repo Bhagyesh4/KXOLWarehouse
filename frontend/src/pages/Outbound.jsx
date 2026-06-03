@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Plus, X, ArrowRight, Printer } from "lucide-react";
+import { Plus, X, ArrowRight, Printer, ScanLine } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import Scanner from "../components/Scanner";
 
 const FLOW = ["pending", "picking", "packing", "shipped"];
 const FLOW_LABEL = {
@@ -145,6 +146,37 @@ function NewOutboundModal({ skus, onClose, onSaved }) {
     });
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
+    const [scanOpen, setScanOpen] = useState(false);
+    const [scanMsg, setScanMsg] = useState("");
+
+    const handleScan = (code) => {
+        setScanOpen(false);
+        const match = skus.find((s) => s.sku_code === code);
+        if (!match) {
+            setScanMsg("");
+            setErr(`No SKU found for barcode: ${code}`);
+            return;
+        }
+        setErr("");
+        setScanMsg(`Added ${match.sku_code} · ${match.name}`);
+        setForm((prev) => {
+            const items = [...prev.items];
+            const existingIdx = items.findIndex((it) => it.sku_id === match.id);
+            if (existingIdx >= 0) {
+                items[existingIdx] = {
+                    ...items[existingIdx],
+                    qty: (parseInt(items[existingIdx].qty) || 0) + 1,
+                };
+                return { ...prev, items };
+            }
+            const emptyIdx = items.findIndex((it) => !it.sku_id);
+            if (emptyIdx >= 0) {
+                items[emptyIdx] = { ...items[emptyIdx], sku_id: match.id, qty: items[emptyIdx].qty || 1 };
+                return { ...prev, items };
+            }
+            return { ...prev, items: [...items, { sku_id: match.id, qty: 1 }] };
+        });
+    };
 
     const submit = async (e) => {
         e.preventDefault();
@@ -204,10 +236,25 @@ function NewOutboundModal({ skus, onClose, onSaved }) {
                             <div className="text-[10px] uppercase tracking-[0.15em] text-gray-500 font-semibold">
                                 Items
                             </div>
-                            <button type="button" onClick={addRow} className="text-xs text-amber-400 hover:text-amber-300">
-                                + Add Row
-                            </button>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setScanOpen(true)}
+                                    data-testid="outbound-scan-btn"
+                                    className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300"
+                                >
+                                    <ScanLine size={13} /> Scan
+                                </button>
+                                <button type="button" onClick={addRow} className="text-xs text-amber-400 hover:text-amber-300">
+                                    + Add Row
+                                </button>
+                            </div>
                         </div>
+                        {scanMsg && (
+                            <div className="mb-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono text-emerald-300">
+                                ✓ {scanMsg}
+                            </div>
+                        )}
                         <div className="space-y-2">
                             {form.items.map((it, i) => (
                                 <div key={i} className="grid grid-cols-12 gap-2">
@@ -248,6 +295,11 @@ function NewOutboundModal({ skus, onClose, onSaved }) {
                     </button>
                 </form>
             </div>
+            {scanOpen && (
+                <div onClick={(e) => e.stopPropagation()}>
+                    <Scanner onScan={handleScan} onClose={() => setScanOpen(false)} />
+                </div>
+            )}
         </div>
     );
 }
