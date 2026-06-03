@@ -88,7 +88,7 @@ export default function PrintGRN() {
                                     <td className="py-2 font-mono">{it.sku?.sku_code}</td>
                                     <td className="py-2">{it.sku?.name}</td>
                                     <td className="py-2 font-mono text-xs">
-                                        {it.sku?.bag_color || "—"}
+                                        {it.bag_color || it.sku?.bag_color || "—"}
                                         {it.sku?.bags_per_pallet != null && (
                                             <span className="text-gray-500"> · {it.sku.bags_per_pallet}/plt</span>
                                         )}
