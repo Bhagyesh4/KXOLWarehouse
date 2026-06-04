@@ -714,7 +714,9 @@ async def zones(user: dict = Depends(get_user)):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT zone, zone_name, temperature, "
-            "SUM(capacity) AS capacity, SUM(occupied) AS occupied, COUNT(*) AS bins "
+            "SUM(capacity) AS capacity, "
+            "SUM(CASE WHEN occupied > 0 THEN 1 ELSE 0 END) AS occupied, "
+            "COUNT(*) AS bins "
             "FROM locations GROUP BY zone, zone_name, temperature ORDER BY zone"
         )
         placeholders = await conn.fetch("SELECT * FROM zones_meta ORDER BY zone")
