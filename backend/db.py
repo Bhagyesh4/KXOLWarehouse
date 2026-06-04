@@ -223,6 +223,87 @@ CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT '0'
 );
+
+CREATE TABLE IF NOT EXISTS customers (
+    id              TEXT PRIMARY KEY,
+    code            TEXT UNIQUE NOT NULL,
+    name            TEXT NOT NULL,
+    contact_person  TEXT,
+    email           TEXT,
+    phone           TEXT,
+    address         TEXT,
+    city            TEXT,
+    country         TEXT,
+    notes           TEXT,
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendors (
+    id              TEXT PRIMARY KEY,
+    code            TEXT UNIQUE NOT NULL,
+    name            TEXT NOT NULL,
+    contact_person  TEXT,
+    email           TEXT,
+    phone           TEXT,
+    address         TEXT,
+    city            TEXT,
+    country         TEXT,
+    notes           TEXT,
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id              TEXT PRIMARY KEY,
+    po_number       TEXT UNIQUE NOT NULL,
+    vendor_id       TEXT NOT NULL REFERENCES vendors(id),
+    status          TEXT NOT NULL DEFAULT 'draft',
+    order_date      TEXT NOT NULL,
+    expected_date   TEXT,
+    total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0,
+    notes           TEXT,
+    created_by      TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    id          TEXT PRIMARY KEY,
+    po_id       TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    sku_id      TEXT NOT NULL,
+    sku_code    TEXT NOT NULL,
+    sku_name    TEXT NOT NULL,
+    qty         INT NOT NULL,
+    unit_cost   DECIMAL(14,2) NOT NULL,
+    total_cost  DECIMAL(14,2) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sales_orders (
+    id              TEXT PRIMARY KEY,
+    so_number       TEXT UNIQUE NOT NULL,
+    customer_id     TEXT NOT NULL REFERENCES customers(id),
+    status          TEXT NOT NULL DEFAULT 'draft',
+    order_date      TEXT NOT NULL,
+    expected_date   TEXT,
+    total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0,
+    notes           TEXT,
+    created_by      TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sales_order_items (
+    id          TEXT PRIMARY KEY,
+    so_id       TEXT NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+    sku_id      TEXT NOT NULL,
+    sku_code    TEXT NOT NULL,
+    sku_name    TEXT NOT NULL,
+    qty         INT NOT NULL,
+    unit_price  DECIMAL(14,2) NOT NULL,
+    total_price DECIMAL(14,2) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_po_vendor   ON purchase_orders(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_po_status   ON purchase_orders(status);
+CREATE INDEX IF NOT EXISTS idx_so_customer ON sales_orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_so_status   ON sales_orders(status);
 """
 
 

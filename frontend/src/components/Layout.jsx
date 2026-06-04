@@ -12,6 +12,7 @@ import {
     LogOut,
     Warehouse,
     ShieldAlert,
+    Users,
 } from "lucide-react";
 
 const NAV = [
@@ -21,6 +22,7 @@ const NAV = [
     { to: "/outbound", label: "Outbound", icon: ArrowUpFromLine, testid: "nav-outbound" },
     { to: "/transfer", label: "Transfer", icon: ArrowLeftRight, testid: "nav-transfer" },
     { to: "/storage", label: "Warehouse Storage", icon: Boxes, testid: "nav-storage" },
+    { to: "/customers", label: "Customers & Vendors", icon: Users, testid: "nav-customers" },
     { to: "/reports", label: "Reports & Analytics", icon: BarChart3, testid: "nav-reports" },
 ];
 

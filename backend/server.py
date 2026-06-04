@@ -2470,6 +2470,369 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
+# ════════════════════════════════════════════════════
+# CUSTOMERS & VENDORS
+# ════════════════════════════════════════════════════
+
+class CustomerIn(BaseModel):
+    code: str
+    name: str
+    contact_person: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
+
+class VendorIn(BaseModel):
+    code: str
+    name: str
+    contact_person: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
+
+class OrderItemIn(BaseModel):
+    sku_id: str
+    qty: int
+    unit_cost: float
+
+class SaleItemIn(BaseModel):
+    sku_id: str
+    qty: int
+    unit_price: float
+
+class PurchaseIn(BaseModel):
+    vendor_id: str
+    order_date: str
+    expected_date: Optional[str] = None
+    notes: Optional[str] = None
+    items: List[OrderItemIn]
+
+class SaleIn(BaseModel):
+    customer_id: str
+    order_date: str
+    expected_date: Optional[str] = None
+    notes: Optional[str] = None
+    items: List[SaleItemIn]
+
+
+# ── Customers ───────────────────────────────────────
+
+@api.get("/customers")
+async def list_customers(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT c.*, "
+            "(SELECT COUNT(*) FROM sales_orders WHERE customer_id=c.id) AS order_count, "
+            "(SELECT COALESCE(SUM(total_amount),0) FROM sales_orders WHERE customer_id=c.id) AS total_sales "
+            "FROM customers c ORDER BY c.name"
+        )
+    return _db.rl(rows)
+
+
+@api.post("/customers")
+async def create_customer(body: CustomerIn, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    cid = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT id FROM customers WHERE code=$1", body.code.upper())
+        if existing:
+            raise HTTPException(400, f"Customer code {body.code.upper()} already exists")
+        row = await conn.fetchrow(
+            "INSERT INTO customers (id,code,name,contact_person,email,phone,address,city,country,notes,created_at) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
+            cid, body.code.upper(), body.name, body.contact_person, body.email,
+            body.phone, body.address, body.city, body.country, body.notes, now,
+        )
+    return _db.r(row)
+
+
+@api.put("/customers/{cid}")
+async def update_customer(cid: str, body: CustomerIn, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "UPDATE customers SET code=$1,name=$2,contact_person=$3,email=$4,phone=$5,"
+            "address=$6,city=$7,country=$8,notes=$9 WHERE id=$10 RETURNING *",
+            body.code.upper(), body.name, body.contact_person, body.email,
+            body.phone, body.address, body.city, body.country, body.notes, cid,
+        )
+    if not row:
+        raise HTTPException(404, "Customer not found")
+    return _db.r(row)
+
+
+@api.delete("/customers/{cid}")
+async def delete_customer(cid: str, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        orders = await conn.fetchval("SELECT COUNT(*) FROM sales_orders WHERE customer_id=$1", cid)
+        if orders:
+            raise HTTPException(409, f"Cannot delete: {orders} sales order(s) linked to this customer")
+        res = await conn.execute("DELETE FROM customers WHERE id=$1", cid)
+    if res == "DELETE 0":
+        raise HTTPException(404, "Customer not found")
+    return {"ok": True}
+
+
+# ── Vendors ─────────────────────────────────────────
+
+@api.get("/vendors")
+async def list_vendors(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT v.*, "
+            "(SELECT COUNT(*) FROM purchase_orders WHERE vendor_id=v.id) AS order_count, "
+            "(SELECT COALESCE(SUM(total_amount),0) FROM purchase_orders WHERE vendor_id=v.id) AS total_purchases "
+            "FROM vendors v ORDER BY v.name"
+        )
+    return _db.rl(rows)
+
+
+@api.post("/vendors")
+async def create_vendor(body: VendorIn, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    vid = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT id FROM vendors WHERE code=$1", body.code.upper())
+        if existing:
+            raise HTTPException(400, f"Vendor code {body.code.upper()} already exists")
+        row = await conn.fetchrow(
+            "INSERT INTO vendors (id,code,name,contact_person,email,phone,address,city,country,notes,created_at) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
+            vid, body.code.upper(), body.name, body.contact_person, body.email,
+            body.phone, body.address, body.city, body.country, body.notes, now,
+        )
+    return _db.r(row)
+
+
+@api.put("/vendors/{vid}")
+async def update_vendor(vid: str, body: VendorIn, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "UPDATE vendors SET code=$1,name=$2,contact_person=$3,email=$4,phone=$5,"
+            "address=$6,city=$7,country=$8,notes=$9 WHERE id=$10 RETURNING *",
+            body.code.upper(), body.name, body.contact_person, body.email,
+            body.phone, body.address, body.city, body.country, body.notes, vid,
+        )
+    if not row:
+        raise HTTPException(404, "Vendor not found")
+    return _db.r(row)
+
+
+@api.delete("/vendors/{vid}")
+async def delete_vendor(vid: str, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        orders = await conn.fetchval("SELECT COUNT(*) FROM purchase_orders WHERE vendor_id=$1", vid)
+        if orders:
+            raise HTTPException(409, f"Cannot delete: {orders} purchase order(s) linked to this vendor")
+        res = await conn.execute("DELETE FROM vendors WHERE id=$1", vid)
+    if res == "DELETE 0":
+        raise HTTPException(404, "Vendor not found")
+    return {"ok": True}
+
+
+# ── Purchase Orders ──────────────────────────────────
+
+def _po_number():
+    from random import randint
+    return f"PO-{datetime.utcnow().strftime('%Y%m')}-{randint(1000,9999)}"
+
+
+@api.get("/purchases")
+async def list_purchases(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT p.*, v.name AS vendor_name, v.code AS vendor_code, "
+            "(SELECT COUNT(*) FROM purchase_order_items WHERE po_id=p.id) AS item_count "
+            "FROM purchase_orders p JOIN vendors v ON v.id=p.vendor_id "
+            "ORDER BY p.created_at DESC"
+        )
+    return _db.rl(rows)
+
+
+@api.get("/purchases/{po_id}")
+async def get_purchase(po_id: str, user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        po = await conn.fetchrow(
+            "SELECT p.*, v.name AS vendor_name, v.code AS vendor_code "
+            "FROM purchase_orders p JOIN vendors v ON v.id=p.vendor_id WHERE p.id=$1", po_id
+        )
+        if not po:
+            raise HTTPException(404, "Purchase order not found")
+        items = await conn.fetch(
+            "SELECT * FROM purchase_order_items WHERE po_id=$1 ORDER BY id", po_id
+        )
+    result = _db.r(po)
+    result["items"] = _db.rl(items)
+    return result
+
+
+@api.post("/purchases")
+async def create_purchase(body: PurchaseIn, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    po_id = str(uuid.uuid4())
+    po_number = _po_number()
+    now = datetime.utcnow().isoformat()
+    async with pool.acquire() as conn:
+        vendor = await conn.fetchrow("SELECT id FROM vendors WHERE id=$1", body.vendor_id)
+        if not vendor:
+            raise HTTPException(404, "Vendor not found")
+        skus = {r["id"]: r for r in await conn.fetch("SELECT id,sku_code,name FROM skus WHERE id=ANY($1)", [i.sku_id for i in body.items])}
+        total = sum(i.qty * i.unit_cost for i in body.items)
+        await conn.execute(
+            "INSERT INTO purchase_orders (id,po_number,vendor_id,status,order_date,expected_date,total_amount,notes,created_by,created_at) "
+            "VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9)",
+            po_id, po_number, body.vendor_id, body.order_date, body.expected_date,
+            total, body.notes, user["email"], now,
+        )
+        for item in body.items:
+            sku = skus.get(item.sku_id)
+            if not sku:
+                raise HTTPException(404, f"SKU {item.sku_id} not found")
+            await conn.execute(
+                "INSERT INTO purchase_order_items (id,po_id,sku_id,sku_code,sku_name,qty,unit_cost,total_cost) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                str(uuid.uuid4()), po_id, item.sku_id, sku["sku_code"], sku["name"],
+                item.qty, item.unit_cost, item.qty * item.unit_cost,
+            )
+    return {"id": po_id, "po_number": po_number}
+
+
+@api.put("/purchases/{po_id}/status")
+async def update_purchase_status(po_id: str, body: dict, user: dict = Depends(require_role("manager"))):
+    status = body.get("status")
+    if status not in ("draft", "confirmed", "received", "cancelled"):
+        raise HTTPException(400, "Invalid status")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        res = await conn.execute("UPDATE purchase_orders SET status=$1 WHERE id=$2", status, po_id)
+    if res == "UPDATE 0":
+        raise HTTPException(404, "Purchase order not found")
+    return {"ok": True}
+
+
+@api.delete("/purchases/{po_id}")
+async def delete_purchase(po_id: str, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        po = await conn.fetchrow("SELECT status FROM purchase_orders WHERE id=$1", po_id)
+        if not po:
+            raise HTTPException(404, "Purchase order not found")
+        if po["status"] not in ("draft", "cancelled"):
+            raise HTTPException(409, "Only draft or cancelled orders can be deleted")
+        await conn.execute("DELETE FROM purchase_orders WHERE id=$1", po_id)
+    return {"ok": True}
+
+
+# ── Sales Orders ─────────────────────────────────────
+
+def _so_number():
+    from random import randint
+    return f"SO-{datetime.utcnow().strftime('%Y%m')}-{randint(1000,9999)}"
+
+
+@api.get("/sales")
+async def list_sales(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT s.*, c.name AS customer_name, c.code AS customer_code, "
+            "(SELECT COUNT(*) FROM sales_order_items WHERE so_id=s.id) AS item_count "
+            "FROM sales_orders s JOIN customers c ON c.id=s.customer_id "
+            "ORDER BY s.created_at DESC"
+        )
+    return _db.rl(rows)
+
+
+@api.get("/sales/{so_id}")
+async def get_sale(so_id: str, user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        so = await conn.fetchrow(
+            "SELECT s.*, c.name AS customer_name, c.code AS customer_code "
+            "FROM sales_orders s JOIN customers c ON c.id=s.customer_id WHERE s.id=$1", so_id
+        )
+        if not so:
+            raise HTTPException(404, "Sales order not found")
+        items = await conn.fetch(
+            "SELECT * FROM sales_order_items WHERE so_id=$1 ORDER BY id", so_id
+        )
+    result = _db.r(so)
+    result["items"] = _db.rl(items)
+    return result
+
+
+@api.post("/sales")
+async def create_sale(body: SaleIn, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    so_id = str(uuid.uuid4())
+    so_number = _so_number()
+    now = datetime.utcnow().isoformat()
+    async with pool.acquire() as conn:
+        customer = await conn.fetchrow("SELECT id FROM customers WHERE id=$1", body.customer_id)
+        if not customer:
+            raise HTTPException(404, "Customer not found")
+        skus = {r["id"]: r for r in await conn.fetch("SELECT id,sku_code,name FROM skus WHERE id=ANY($1)", [i.sku_id for i in body.items])}
+        total = sum(i.qty * i.unit_price for i in body.items)
+        await conn.execute(
+            "INSERT INTO sales_orders (id,so_number,customer_id,status,order_date,expected_date,total_amount,notes,created_by,created_at) "
+            "VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9)",
+            so_id, so_number, body.customer_id, body.order_date, body.expected_date,
+            total, body.notes, user["email"], now,
+        )
+        for item in body.items:
+            sku = skus.get(item.sku_id)
+            if not sku:
+                raise HTTPException(404, f"SKU {item.sku_id} not found")
+            await conn.execute(
+                "INSERT INTO sales_order_items (id,so_id,sku_id,sku_code,sku_name,qty,unit_price,total_price) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                str(uuid.uuid4()), so_id, item.sku_id, sku["sku_code"], sku["name"],
+                item.qty, item.unit_price, item.qty * item.unit_price,
+            )
+    return {"id": so_id, "so_number": so_number}
+
+
+@api.put("/sales/{so_id}/status")
+async def update_sale_status(so_id: str, body: dict, user: dict = Depends(require_role("manager"))):
+    status = body.get("status")
+    if status not in ("draft", "confirmed", "shipped", "cancelled"):
+        raise HTTPException(400, "Invalid status")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        res = await conn.execute("UPDATE sales_orders SET status=$1 WHERE id=$2", status, so_id)
+    if res == "UPDATE 0":
+        raise HTTPException(404, "Sales order not found")
+    return {"ok": True}
+
+
+@api.delete("/sales/{so_id}")
+async def delete_sale(so_id: str, user: dict = Depends(require_role("manager"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        so = await conn.fetchrow("SELECT status FROM sales_orders WHERE id=$1", so_id)
+        if not so:
+            raise HTTPException(404, "Sales order not found")
+        if so["status"] not in ("draft", "cancelled"):
+            raise HTTPException(409, "Only draft or cancelled orders can be deleted")
+        await conn.execute("DELETE FROM sales_orders WHERE id=$1", so_id)
+    return {"ok": True}
+
+
 @api.get("/")
 async def root():
     return {"app": "FrostCore API", "status": "ok", "db": "postgresql"}

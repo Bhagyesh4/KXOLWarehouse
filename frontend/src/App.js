@@ -11,6 +11,7 @@ import Outbound from "./pages/Outbound";
 import Storage from "./pages/Storage";
 import Transfer from "./pages/Transfer";
 import Reports from "./pages/Reports";
+import Customers from "./pages/Customers";
 import Admin from "./pages/Admin";
 import PrintGRN from "./pages/PrintGRN";
 import PrintPickList from "./pages/PrintPickList";
@@ -63,6 +64,7 @@ export default function App() {
                         <Route path="/storage" element={<Storage />} />
                         <Route path="/transfer" element={<Transfer />} />
                         <Route path="/shuttle" element={<Navigate to="/storage" replace />} />
+                        <Route path="/customers" element={<Customers />} />
                         <Route path="/reports" element={<Reports />} />
                         <Route path="/admin" element={<Admin />} />
                     </Route>
