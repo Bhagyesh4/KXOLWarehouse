@@ -15,7 +15,7 @@ import random
 import openpyxl
 from openpyxl.styles import Font
 from decimal import Decimal
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from typing import List, Optional, Literal
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
@@ -2058,6 +2058,372 @@ STORED WEIGHT (weight_per_bag x on-hand bags):
     except Exception as e:
         logging.exception("AI insights failed")
         return {"insights": f"AI service unavailable: {str(e)}", "generated_at": now_iso()}
+
+
+# ─── Extended Reports ─────────────────────────────────────────────────────────
+
+@api.get("/reports/stock-on-hand")
+async def report_stock_on_hand(view: str = "sku", zone: Optional[str] = None, user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        if view == "location":
+            q = ("SELECT l.code AS location, l.zone, COALESCE(l.zone_name,'') AS zone_name, "
+                 "l.row_label, l.lane_number, l.level, "
+                 "sk.sku_code, sk.name AS sku_name, s.batch_no, s.expiry_date, s.bag_color, SUM(s.qty) AS qty "
+                 "FROM stock s JOIN skus sk ON sk.id=s.sku_id JOIN locations l ON l.id=s.location_id "
+                 "WHERE s.qty>0 ")
+            args: list = []
+            if zone:
+                args.append(zone)
+                q += f"AND l.zone=${len(args)} "
+            q += ("GROUP BY l.code,l.zone,l.zone_name,l.row_label,l.lane_number,l.level,"
+                  "sk.sku_code,sk.name,s.batch_no,s.expiry_date,s.bag_color ORDER BY l.zone,l.code")
+            rows = await conn.fetch(q, *args)
+        elif view == "batch":
+            rows = await conn.fetch(
+                "SELECT sk.sku_code, sk.name AS sku_name, s.batch_no, s.expiry_date, s.manufacture_date, "
+                "s.bag_color, SUM(s.qty) AS qty, COUNT(DISTINCT s.location_id) AS location_count "
+                "FROM stock s JOIN skus sk ON sk.id=s.sku_id "
+                "WHERE s.qty>0 AND s.batch_no IS NOT NULL "
+                "GROUP BY sk.sku_code,sk.name,s.batch_no,s.expiry_date,s.manufacture_date,s.bag_color "
+                "ORDER BY sk.sku_code,s.expiry_date"
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT sk.sku_code, sk.name AS sku_name, sk.category, sk.unit, "
+                "SUM(s.qty) AS total_qty, COUNT(DISTINCT s.location_id) AS locations, "
+                "MIN(s.expiry_date) AS earliest_expiry "
+                "FROM stock s JOIN skus sk ON sk.id=s.sku_id "
+                "WHERE s.qty>0 "
+                "GROUP BY sk.sku_code,sk.name,sk.category,sk.unit ORDER BY sk.sku_code"
+            )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/expiry")
+async def report_expiry(days: int = 30, user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    today = date.today().isoformat()
+    async with pool.acquire() as conn:
+        if days == 0:
+            rows = await conn.fetch(
+                "SELECT sk.sku_code, sk.name AS sku_name, s.batch_no, s.expiry_date, "
+                "l.code AS location, SUM(s.qty) AS qty "
+                "FROM stock s JOIN skus sk ON sk.id=s.sku_id JOIN locations l ON l.id=s.location_id "
+                "WHERE s.qty>0 AND s.expiry_date IS NOT NULL AND s.expiry_date<$1 "
+                "GROUP BY sk.sku_code,sk.name,s.batch_no,s.expiry_date,l.code "
+                "ORDER BY s.expiry_date", today
+            )
+        else:
+            future = (date.today() + timedelta(days=days)).isoformat()
+            rows = await conn.fetch(
+                "SELECT sk.sku_code, sk.name AS sku_name, s.batch_no, s.expiry_date, "
+                "l.code AS location, SUM(s.qty) AS qty "
+                "FROM stock s JOIN skus sk ON sk.id=s.sku_id JOIN locations l ON l.id=s.location_id "
+                "WHERE s.qty>0 AND s.expiry_date IS NOT NULL AND s.expiry_date>=$1 AND s.expiry_date<=$2 "
+                "GROUP BY sk.sku_code,sk.name,s.batch_no,s.expiry_date,l.code "
+                "ORDER BY s.expiry_date", today, future
+            )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/grn")
+async def report_grn(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    user: dict = Depends(get_user),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        conds = ["i.status='completed'"]
+        args: list = []
+        if date_from:
+            args.append(date_from)
+            conds.append(f"i.created_at>=${len(args)}")
+        if date_to:
+            args.append(date_to + "T23:59:59")
+            conds.append(f"i.created_at<=${len(args)}")
+        if vendor_id:
+            args.append(vendor_id)
+            conds.append(f"i.vendor_id=${len(args)}")
+        where = " AND ".join(conds)
+        rows = await conn.fetch(
+            f"SELECT i.id, i.po_number, COALESCE(v.name,i.supplier) AS vendor_name, "
+            f"i.expected_date, i.completed_at, i.created_at, i.created_by, "
+            f"COUNT(ii.id) AS line_count, COALESCE(SUM(ii.qty),0) AS total_qty "
+            f"FROM inbound i "
+            f"LEFT JOIN vendors v ON v.id=i.vendor_id "
+            f"LEFT JOIN inbound_items ii ON ii.inbound_id=i.id "
+            f"WHERE {where} "
+            f"GROUP BY i.id,i.po_number,v.name,i.supplier,i.expected_date,i.completed_at,i.created_at,i.created_by "
+            f"ORDER BY i.created_at DESC", *args
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/pending-receipts")
+async def report_pending_receipts(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    today = date.today().isoformat()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT i.id, i.po_number, COALESCE(v.name,i.supplier) AS vendor_name, "
+            "i.expected_date, i.created_at, i.created_by, "
+            "COALESCE(SUM(ii.qty),0) AS expected_qty, COUNT(ii.id) AS line_count, "
+            "CASE WHEN i.expected_date<$1 THEN 'overdue' ELSE 'on-time' END AS timeliness "
+            "FROM inbound i "
+            "LEFT JOIN vendors v ON v.id=i.vendor_id "
+            "LEFT JOIN inbound_items ii ON ii.inbound_id=i.id "
+            "WHERE i.status='pending' "
+            "GROUP BY i.id,i.po_number,v.name,i.supplier,i.expected_date,i.created_at,i.created_by "
+            "ORDER BY i.expected_date", today
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/shipments")
+async def report_shipments(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    customer_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: dict = Depends(get_user),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        conds: list = ["1=1"]
+        args: list = []
+        if date_from:
+            args.append(date_from)
+            conds.append(f"o.created_at>=${len(args)}")
+        if date_to:
+            args.append(date_to + "T23:59:59")
+            conds.append(f"o.created_at<=${len(args)}")
+        if customer_id:
+            args.append(customer_id)
+            conds.append(f"o.customer_id=${len(args)}")
+        if status:
+            args.append(status)
+            conds.append(f"o.status=${len(args)}")
+        where = " AND ".join(conds)
+        rows = await conn.fetch(
+            f"SELECT o.id, o.so_number, COALESCE(c.name,o.customer) AS customer_name, "
+            f"o.status, o.created_at, o.created_by, "
+            f"COUNT(oi.id) AS line_count, COALESCE(SUM(oi.qty),0) AS total_qty "
+            f"FROM outbound o "
+            f"LEFT JOIN customers c ON c.id=o.customer_id "
+            f"LEFT JOIN outbound_items oi ON oi.outbound_id=o.id "
+            f"WHERE {where} "
+            f"GROUP BY o.id,o.so_number,c.name,o.customer,o.status,o.created_at,o.created_by "
+            f"ORDER BY o.created_at DESC", *args
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/pick-performance")
+async def report_pick_performance(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT o.so_number, COALESCE(c.name,o.customer) AS customer_name, "
+            "o.status, o.created_at, sk.sku_code, sk.name AS sku_name, "
+            "SUM(oi.qty) AS ordered_qty, COALESCE(op.picked_qty,0) AS picked_qty, "
+            "ROUND(COALESCE(op.picked_qty,0)*100.0/NULLIF(SUM(oi.qty),0),1) AS accuracy_pct "
+            "FROM outbound_items oi "
+            "JOIN outbound o ON o.id=oi.outbound_id "
+            "JOIN skus sk ON sk.id=oi.sku_id "
+            "LEFT JOIN customers c ON c.id=o.customer_id "
+            "LEFT JOIN ("
+            "  SELECT outbound_id,sku_id,SUM(qty) AS picked_qty "
+            "  FROM outbound_picks GROUP BY outbound_id,sku_id"
+            ") op ON op.outbound_id=oi.outbound_id AND op.sku_id=oi.sku_id "
+            "GROUP BY o.id,o.so_number,c.name,o.customer,o.status,o.created_at,"
+            "sk.sku_code,sk.name,op.picked_qty "
+            "ORDER BY o.created_at DESC"
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/stock-movement")
+async def report_stock_movement(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    mov_type: Optional[str] = None,
+    user: dict = Depends(get_user),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        conds: list = ["1=1"]
+        args: list = []
+        if date_from:
+            args.append(date_from)
+            conds.append(f"m.timestamp>=${len(args)}")
+        if date_to:
+            args.append(date_to + "T23:59:59")
+            conds.append(f"m.timestamp<=${len(args)}")
+        if mov_type and mov_type != "transfer":
+            args.append(mov_type)
+            conds.append(f"m.type=${len(args)}")
+        where = " AND ".join(conds)
+        mov_rows = [] if mov_type == "transfer" else await conn.fetch(
+            f"SELECT m.type, m.timestamp, sk.sku_code, sk.name AS sku_name, "
+            f"l.code AS location, m.qty, m.ref, m.batch_no "
+            f"FROM movements m JOIN skus sk ON sk.id=m.sku_id JOIN locations l ON l.id=m.location_id "
+            f"WHERE {where} ORDER BY m.timestamp DESC LIMIT 1000", *args
+        )
+        t_conds: list = ["status='confirmed'"]
+        t_args: list = []
+        if date_from:
+            t_args.append(date_from)
+            t_conds.append(f"transferred_at>=${len(t_args)}")
+        if date_to:
+            t_args.append(date_to + "T23:59:59")
+            t_conds.append(f"transferred_at<=${len(t_args)}")
+        t_where = " AND ".join(t_conds)
+        xfer_rows = [] if (mov_type and mov_type != "transfer") else await conn.fetch(
+            f"SELECT 'transfer' AS type, transferred_at AS timestamp, sku_code, sku_name, "
+            f"from_code||' → '||to_code AS location, qty, id AS ref, NULL::text AS batch_no "
+            f"FROM transfers WHERE {t_where} ORDER BY transferred_at DESC LIMIT 500", *t_args
+        )
+    combined = [dict(r) for r in mov_rows] + [dict(r) for r in xfer_rows]
+    combined.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
+    return combined[:1000]
+
+
+@api.get("/reports/inventory-transactions")
+async def report_inventory_transactions(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sku_id: Optional[str] = None,
+    user: dict = Depends(get_user),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        conds: list = ["1=1"]
+        args: list = []
+        if date_from:
+            args.append(date_from)
+            conds.append(f"m.timestamp>=${len(args)}")
+        if date_to:
+            args.append(date_to + "T23:59:59")
+            conds.append(f"m.timestamp<=${len(args)}")
+        if sku_id:
+            args.append(sku_id)
+            conds.append(f"m.sku_id=${len(args)}")
+        where = " AND ".join(conds)
+        rows = await conn.fetch(
+            f"SELECT m.id, m.type, m.timestamp, sk.sku_code, sk.name AS sku_name, "
+            f"l.code AS location, l.zone, m.qty, m.ref, m.batch_no, m.expiry_date "
+            f"FROM movements m JOIN skus sk ON sk.id=m.sku_id JOIN locations l ON l.id=m.location_id "
+            f"WHERE {where} ORDER BY m.timestamp DESC LIMIT 1000", *args
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/location-transfers")
+async def report_location_transfers(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(get_user),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        conds: list = ["1=1"]
+        args: list = []
+        if date_from:
+            args.append(date_from)
+            conds.append(f"transferred_at>=${len(args)}")
+        if date_to:
+            args.append(date_to + "T23:59:59")
+            conds.append(f"transferred_at<=${len(args)}")
+        where = " AND ".join(conds)
+        rows = await conn.fetch(
+            f"SELECT id, sku_code, sku_name, pallet_code, qty, bag_color, "
+            f"from_code, to_code, notes, transferred_by, transferred_at, status, confirmed_at "
+            f"FROM transfers WHERE {where} ORDER BY transferred_at DESC LIMIT 500", *args
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/bin-utilization")
+async def report_bin_utilization(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        summary = await conn.fetchrow(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN occupied>0 THEN 1 ELSE 0 END) AS occupied, "
+            "SUM(CASE WHEN occupied=0 THEN 1 ELSE 0 END) AS empty, "
+            "ROUND(SUM(CASE WHEN occupied>0 THEN 1 ELSE 0 END)*100.0/NULLIF(COUNT(*),0),1) AS pct "
+            "FROM locations"
+        )
+        zones = await conn.fetch(
+            "SELECT zone, COALESCE(zone_name,'') AS zone_name, COUNT(*) AS total, "
+            "SUM(CASE WHEN occupied>0 THEN 1 ELSE 0 END) AS occupied, "
+            "SUM(CASE WHEN occupied=0 THEN 1 ELSE 0 END) AS empty, "
+            "ROUND(SUM(CASE WHEN occupied>0 THEN 1 ELSE 0 END)*100.0/NULLIF(COUNT(*),0),1) AS pct "
+            "FROM locations GROUP BY zone,zone_name ORDER BY zone"
+        )
+    return {"summary": dict(summary), "zones": [dict(z) for z in zones]}
+
+
+@api.get("/reports/warehouse-capacity")
+async def report_warehouse_capacity(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        zones = await conn.fetch(
+            "SELECT zone, COALESCE(zone_name,'') AS zone_name, COUNT(*) AS total_locations, "
+            "SUM(capacity) AS total_positions, SUM(occupied) AS occupied_positions, "
+            "SUM(capacity-occupied) AS available_positions, "
+            "ROUND(SUM(occupied)*100.0/NULLIF(SUM(capacity),0),1) AS utilization_pct "
+            "FROM locations GROUP BY zone,zone_name ORDER BY zone"
+        )
+        totals = await conn.fetchrow(
+            "SELECT SUM(capacity) AS total_positions, SUM(occupied) AS occupied_positions, "
+            "SUM(capacity-occupied) AS available_positions, "
+            "ROUND(SUM(occupied)*100.0/NULLIF(SUM(capacity),0),1) AS utilization_pct FROM locations"
+        )
+    return {"zones": [dict(r) for r in zones], "totals": dict(totals)}
+
+
+@api.get("/reports/location-occupancy")
+async def report_location_occupancy(zone: Optional[str] = None, user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        q = ("SELECT l.zone, COALESCE(l.zone_name,'') AS zone_name, l.row_label, "
+             "l.lane_number, l.code, l.level, l.capacity, l.occupied, "
+             "CASE WHEN l.occupied>0 THEN 'occupied' ELSE 'empty' END AS status, "
+             "sk.sku_code, sk.name AS sku_name, COALESCE(SUM(s.qty),0) AS qty, "
+             "MAX(s.expiry_date) AS expiry_date "
+             "FROM locations l "
+             "LEFT JOIN stock s ON s.location_id=l.id AND s.qty>0 "
+             "LEFT JOIN skus sk ON sk.id=s.sku_id ")
+        args: list = []
+        if zone:
+            args.append(zone)
+            q += f"WHERE l.zone=${len(args)} "
+        q += ("GROUP BY l.id,l.zone,l.zone_name,l.row_label,l.lane_number,l.code,"
+              "l.level,l.capacity,l.occupied,sk.sku_code,sk.name "
+              "ORDER BY l.zone,l.row_label,l.lane_number,l.level")
+        rows = await conn.fetch(q, *args)
+    return [dict(r) for r in rows]
+
+
+@api.get("/reports/empty-locations")
+async def report_empty_locations(zone: Optional[str] = None, user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        q = ("SELECT l.zone, COALESCE(l.zone_name,'') AS zone_name, l.code, "
+             "l.row_label, l.lane_number, l.level, l.capacity, "
+             "COALESCE(l.rack_type,'') AS rack_type "
+             "FROM locations l WHERE l.occupied=0 ")
+        args: list = []
+        if zone:
+            args.append(zone)
+            q += f"AND l.zone=${len(args)} "
+        q += "ORDER BY l.zone,l.row_label,l.lane_number,l.level"
+        rows = await conn.fetch(q, *args)
+    return [dict(r) for r in rows]
 
 
 # ════════════════════════════════════════════════════
