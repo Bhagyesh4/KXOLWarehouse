@@ -65,6 +65,28 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _get_anthropic_client():
+    """Return (client, model) using whichever API key is available.
+    Prefers the Replit-managed integration key; falls back to ANTHROPIC_API_KEY."""
+    import anthropic as _anthropic
+    integ_key = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
+    direct_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if integ_key:
+        return (
+            _anthropic.Anthropic(
+                api_key=integ_key,
+                base_url=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+            ),
+            "claude-sonnet-4-6",
+        )
+    if direct_key:
+        return (
+            _anthropic.Anthropic(api_key=direct_key),
+            "claude-3-5-sonnet-20241022",
+        )
+    raise RuntimeError("No Anthropic API key configured. Set ANTHROPIC_API_KEY in Secrets.")
+
+
 def _shuttle_code(lane: int, level: int, depth: int) -> str:
     return f"SZA-{lane:02d}-L{level:02d}-D{depth:02d}"
 
@@ -875,13 +897,9 @@ async def parse_blueprint(
     if not text.strip():
         raise HTTPException(400, "Could not extract text from blueprint")
     try:
-        import anthropic as _anthropic
-        _client = _anthropic.Anthropic(
-            api_key=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", ""),
-            base_url=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-        )
+        _client, _model = _get_anthropic_client()
         _resp = _client.messages.create(
-            model="claude-sonnet-4-6",
+            model=_model,
             max_tokens=1024,
             system=(
                 "You are a warehouse blueprint analyst. Extract rack/lane configuration from the blueprint text "
@@ -2005,13 +2023,9 @@ STORED WEIGHT (weight_per_bag x on-hand bags):
 {weight_lines}
 """
     try:
-        import anthropic as _anthropic
-        _client = _anthropic.Anthropic(
-            api_key=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", ""),
-            base_url=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-        )
+        _client, _model = _get_anthropic_client()
         _resp = _client.messages.create(
-            model="claude-sonnet-4-6",
+            model=_model,
             max_tokens=1024,
             system=(
                 "You are a senior cold-chain warehouse operations analyst overseeing a -20°C drive-in racking facility (LIFO). "
