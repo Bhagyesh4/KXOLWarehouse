@@ -2521,7 +2521,7 @@ async def list_customers(user: dict = Depends(get_user)):
 
 
 @api.post("/customers")
-async def create_customer(body: CustomerIn, user: dict = Depends(require_role("manager"))):
+async def create_customer(body: CustomerIn, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     cid = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -2539,7 +2539,7 @@ async def create_customer(body: CustomerIn, user: dict = Depends(require_role("m
 
 
 @api.put("/customers/{cid}")
-async def update_customer(cid: str, body: CustomerIn, user: dict = Depends(require_role("manager"))):
+async def update_customer(cid: str, body: CustomerIn, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -2554,7 +2554,7 @@ async def update_customer(cid: str, body: CustomerIn, user: dict = Depends(requi
 
 
 @api.delete("/customers/{cid}")
-async def delete_customer(cid: str, user: dict = Depends(require_role("manager"))):
+async def delete_customer(cid: str, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         orders = await conn.fetchval("SELECT COUNT(*) FROM sales_orders WHERE customer_id=$1", cid)
@@ -2582,7 +2582,7 @@ async def list_vendors(user: dict = Depends(get_user)):
 
 
 @api.post("/vendors")
-async def create_vendor(body: VendorIn, user: dict = Depends(require_role("manager"))):
+async def create_vendor(body: VendorIn, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     vid = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -2600,7 +2600,7 @@ async def create_vendor(body: VendorIn, user: dict = Depends(require_role("manag
 
 
 @api.put("/vendors/{vid}")
-async def update_vendor(vid: str, body: VendorIn, user: dict = Depends(require_role("manager"))):
+async def update_vendor(vid: str, body: VendorIn, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -2615,7 +2615,7 @@ async def update_vendor(vid: str, body: VendorIn, user: dict = Depends(require_r
 
 
 @api.delete("/vendors/{vid}")
-async def delete_vendor(vid: str, user: dict = Depends(require_role("manager"))):
+async def delete_vendor(vid: str, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         orders = await conn.fetchval("SELECT COUNT(*) FROM purchase_orders WHERE vendor_id=$1", vid)
@@ -2666,7 +2666,7 @@ async def get_purchase(po_id: str, user: dict = Depends(get_user)):
 
 
 @api.post("/purchases")
-async def create_purchase(body: PurchaseIn, user: dict = Depends(require_role("manager"))):
+async def create_purchase(body: PurchaseIn, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     po_id = str(uuid.uuid4())
     po_number = _po_number()
@@ -2697,7 +2697,7 @@ async def create_purchase(body: PurchaseIn, user: dict = Depends(require_role("m
 
 
 @api.put("/purchases/{po_id}/status")
-async def update_purchase_status(po_id: str, body: dict, user: dict = Depends(require_role("manager"))):
+async def update_purchase_status(po_id: str, body: dict, user: dict = Depends(require_role("manager", "admin"))):
     status = body.get("status")
     if status not in ("draft", "confirmed", "received", "cancelled"):
         raise HTTPException(400, "Invalid status")
@@ -2710,7 +2710,7 @@ async def update_purchase_status(po_id: str, body: dict, user: dict = Depends(re
 
 
 @api.delete("/purchases/{po_id}")
-async def delete_purchase(po_id: str, user: dict = Depends(require_role("manager"))):
+async def delete_purchase(po_id: str, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         po = await conn.fetchrow("SELECT status FROM purchase_orders WHERE id=$1", po_id)
@@ -2761,7 +2761,7 @@ async def get_sale(so_id: str, user: dict = Depends(get_user)):
 
 
 @api.post("/sales")
-async def create_sale(body: SaleIn, user: dict = Depends(require_role("manager"))):
+async def create_sale(body: SaleIn, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     so_id = str(uuid.uuid4())
     so_number = _so_number()
@@ -2792,7 +2792,7 @@ async def create_sale(body: SaleIn, user: dict = Depends(require_role("manager")
 
 
 @api.put("/sales/{so_id}/status")
-async def update_sale_status(so_id: str, body: dict, user: dict = Depends(require_role("manager"))):
+async def update_sale_status(so_id: str, body: dict, user: dict = Depends(require_role("manager", "admin"))):
     status = body.get("status")
     if status not in ("draft", "confirmed", "shipped", "cancelled"):
         raise HTTPException(400, "Invalid status")
@@ -2805,7 +2805,7 @@ async def update_sale_status(so_id: str, body: dict, user: dict = Depends(requir
 
 
 @api.delete("/sales/{so_id}")
-async def delete_sale(so_id: str, user: dict = Depends(require_role("manager"))):
+async def delete_sale(so_id: str, user: dict = Depends(require_role("manager", "admin"))):
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         so = await conn.fetchrow("SELECT status FROM sales_orders WHERE id=$1", so_id)
