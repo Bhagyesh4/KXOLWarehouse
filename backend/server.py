@@ -216,6 +216,7 @@ class InboundItemIn(BaseModel):
 class InboundIn(BaseModel):
     po_number: str
     supplier: str
+    vendor_id: Optional[str] = None
     expected_date: str
     items: List[InboundItemIn]
 
@@ -258,6 +259,7 @@ class OutboundItemIn(BaseModel):
 class OutboundIn(BaseModel):
     so_number: str
     customer: str
+    customer_id: Optional[str] = None
     items: List[OutboundItemIn]
 
 
@@ -1461,9 +1463,15 @@ async def list_inbound(status: Optional[str] = None, user: dict = Depends(get_us
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         if status:
-            orders = await conn.fetch("SELECT * FROM inbound WHERE status=$1 ORDER BY created_at DESC", status)
+            orders = await conn.fetch(
+                "SELECT i.*, v.name AS vendor_name FROM inbound i "
+                "LEFT JOIN vendors v ON v.id = i.vendor_id WHERE i.status=$1 ORDER BY i.created_at DESC", status
+            )
         else:
-            orders = await conn.fetch("SELECT * FROM inbound ORDER BY created_at DESC")
+            orders = await conn.fetch(
+                "SELECT i.*, v.name AS vendor_name FROM inbound i "
+                "LEFT JOIN vendors v ON v.id = i.vendor_id ORDER BY i.created_at DESC"
+            )
         if not orders:
             return []
         ids = [o["id"] for o in orders]
@@ -1508,9 +1516,9 @@ async def create_inbound(body: InboundIn, user: dict = Depends(require_role("adm
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
-                "INSERT INTO inbound (id, po_number, supplier, expected_date, status, created_at, created_by) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7)",
-                oid, body.po_number, body.supplier, body.expected_date, "pending", ts, user["name"],
+                "INSERT INTO inbound (id, po_number, supplier, vendor_id, expected_date, status, created_at, created_by) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                oid, body.po_number, body.supplier, body.vendor_id, body.expected_date, "pending", ts, user["name"],
             )
             await conn.executemany(
                 "INSERT INTO inbound_items (id, inbound_id, sku_id, qty, location_id, barcode, "
@@ -1520,6 +1528,7 @@ async def create_inbound(body: InboundIn, user: dict = Depends(require_role("adm
             )
     return {
         "id": oid, "po_number": body.po_number, "supplier": body.supplier,
+        "vendor_id": body.vendor_id, "vendor_name": None,
         "expected_date": body.expected_date, "status": "pending",
         "created_at": ts, "created_by": user["name"], "items": items_out,
     }
@@ -1691,9 +1700,15 @@ async def list_outbound(status: Optional[str] = None, user: dict = Depends(get_u
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         if status:
-            orders = await conn.fetch("SELECT * FROM outbound WHERE status=$1 ORDER BY created_at DESC", status)
+            orders = await conn.fetch(
+                "SELECT o.*, c.name AS customer_name FROM outbound o "
+                "LEFT JOIN customers c ON c.id = o.customer_id WHERE o.status=$1 ORDER BY o.created_at DESC", status
+            )
         else:
-            orders = await conn.fetch("SELECT * FROM outbound ORDER BY created_at DESC")
+            orders = await conn.fetch(
+                "SELECT o.*, c.name AS customer_name FROM outbound o "
+                "LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.created_at DESC"
+            )
         if not orders:
             return []
         ids = [o["id"] for o in orders]
@@ -1731,8 +1746,8 @@ async def create_outbound(body: OutboundIn, user: dict = Depends(require_role("a
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO outbound (id, so_number, customer, status, created_at, created_by) VALUES ($1,$2,$3,$4,$5,$6)",
-            oid, body.so_number, body.customer, "pending", ts, user["name"],
+            "INSERT INTO outbound (id, so_number, customer, customer_id, status, created_at, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            oid, body.so_number, body.customer, body.customer_id, "pending", ts, user["name"],
         )
         item_rows = [(str(uuid.uuid4()), oid, it.sku_id, it.qty) for it in body.items]
         await conn.executemany(
@@ -1741,6 +1756,7 @@ async def create_outbound(body: OutboundIn, user: dict = Depends(require_role("a
     items_out = [{"id": r[0], "outbound_id": oid, "sku_id": r[2], "qty": r[3]} for r in item_rows]
     return {
         "id": oid, "so_number": body.so_number, "customer": body.customer,
+        "customer_id": body.customer_id, "customer_name": None,
         "status": "pending", "created_at": ts, "created_by": user["name"], "items": items_out,
     }
 

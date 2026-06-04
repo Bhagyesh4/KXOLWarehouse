@@ -43,22 +43,25 @@ export default function Inbound() {
     const [skus, setSkus] = useState([]);
     const [locs, setLocs] = useState([]);
     const [zones, setZones] = useState([]);
+    const [vendors, setVendors] = useState([]);
     const [open, setOpen] = useState(false);
     const [putawayOrder, setPutawayOrder] = useState(null);
 
     const canCreate = user?.role === "admin" || user?.role === "manager";
 
     const load = async () => {
-        const [a, b, c, d] = await Promise.all([
+        const [a, b, c, d, e] = await Promise.all([
             api.get("/inbound"),
             api.get("/inventory/skus"),
             api.get("/storage/locations"),
             api.get("/storage/zones"),
+            api.get("/vendors"),
         ]);
         setOrders(a.data);
         setSkus(b.data);
         setLocs(c.data);
         setZones(d.data);
+        setVendors(e.data);
     };
 
     useEffect(() => {
@@ -129,6 +132,7 @@ export default function Inbound() {
                     zones={zones}
                     skus={skus}
                     locs={locs}
+                    vendors={vendors}
                     onClose={() => setOpen(false)}
                     onSaved={() => {
                         setOpen(false);
@@ -214,7 +218,9 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
                                     <div className="font-mono text-amber-400 font-semibold">
                                         {o.po_number}
                                     </div>
-                                    <div className="text-xs text-gray-500">{o.supplier}</div>
+                                    <div className="text-xs text-gray-500">
+                                        {o.vendor_name || o.supplier || "—"}
+                                    </div>
                                 </div>
                                 <div className="font-mono text-[10px] text-gray-500">
                                     ETA: {o.expected_date}
@@ -322,7 +328,7 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
 }
 
 /* ─── New Inbound Flow: Warehouse → Location → Purchase Order ─── */
-function NewInboundFlow({ zones, skus, locs, onClose, onSaved }) {
+function NewInboundFlow({ zones, skus, locs, vendors, onClose, onSaved }) {
     const [step, setStep] = useState("warehouse");
     const [zone, setZone] = useState(null);
     const [location, setLocation] = useState(null);
@@ -359,6 +365,7 @@ function NewInboundFlow({ zones, skus, locs, onClose, onSaved }) {
     return (
         <NewInboundModal
             skus={skus}
+            vendors={vendors}
             zone={zone}
             location={location}
             onBack={() => setStep("location")}
@@ -651,10 +658,11 @@ function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfi
     );
 }
 
-function NewInboundModal({ skus, zone, location, onBack, onClose, onSaved }) {
+function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSaved }) {
     const [form, setForm] = useState({
         po_number: `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
         supplier: "",
+        vendor_id: "",
         expected_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
         items: [
             {
@@ -773,12 +781,25 @@ function NewInboundModal({ skus, zone, location, onBack, onClose, onSaved }) {
                             onChange={(v) => setForm({ ...form, po_number: v })}
                             testid="new-inbound-po"
                         />
-                        <Field
-                            label="Supplier"
-                            value={form.supplier}
-                            onChange={(v) => setForm({ ...form, supplier: v })}
-                            testid="new-inbound-supplier"
-                        />
+                        <div>
+                            <label className="block text-[10px] uppercase tracking-[0.15em] text-gray-500 font-semibold mb-1.5">
+                                Vendor
+                            </label>
+                            <select
+                                data-testid="new-inbound-vendor"
+                                value={form.vendor_id}
+                                onChange={(e) => {
+                                    const v = vendors.find((x) => x.id === e.target.value);
+                                    setForm({ ...form, vendor_id: e.target.value, supplier: v ? v.name : "" });
+                                }}
+                                className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 text-sm font-mono"
+                            >
+                                <option value="">— Select Vendor —</option>
+                                {vendors.map((v) => (
+                                    <option key={v.id} value={v.id}>{v.name}</option>
+                                ))}
+                            </select>
+                        </div>
                         <Field
                             label="Expected Date"
                             type="date"

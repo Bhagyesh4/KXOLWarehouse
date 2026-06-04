@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS inbound_items (
 );
 
 ALTER TABLE inbound_items ADD COLUMN IF NOT EXISTS bag_color VARCHAR(50);
+ALTER TABLE inbound  ADD COLUMN IF NOT EXISTS vendor_id   TEXT REFERENCES vendors(id);
+ALTER TABLE outbound ADD COLUMN IF NOT EXISTS customer_id TEXT REFERENCES customers(id);
 
 CREATE INDEX IF NOT EXISTS idx_ii_order ON inbound_items(inbound_id);
 

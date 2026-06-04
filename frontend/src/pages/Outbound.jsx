@@ -43,15 +43,17 @@ export default function Outbound() {
     const { user } = useAuth();
     const [orders, setOrders] = useState([]);
     const [skus, setSkus] = useState([]);
+    const [customers, setCustomers] = useState([]);
     const [open, setOpen] = useState(false);
     const [pickOrder, setPickOrder] = useState(null);
 
     const canCreate = user?.role === "admin" || user?.role === "manager";
 
     const load = async () => {
-        const [a, b] = await Promise.all([api.get("/outbound"), api.get("/inventory/skus")]);
+        const [a, b, c] = await Promise.all([api.get("/outbound"), api.get("/inventory/skus"), api.get("/customers")]);
         setOrders(a.data);
         setSkus(b.data);
+        setCustomers(c.data);
         return a.data;
     };
 
@@ -108,7 +110,7 @@ export default function Outbound() {
                             {grouped[st].map((o, idx) => (
                                 <div key={o.id} data-testid={`outbound-card-${st}-${idx}`} className="border border-white/10 p-3 hover:border-amber-500/40 transition-colors">
                                     <div className="font-mono text-amber-400 font-semibold text-sm">{o.so_number}</div>
-                                    <div className="text-xs text-gray-500 mb-2">{o.customer}</div>
+                                    <div className="text-xs text-gray-500 mb-2">{o.customer_name || o.customer || "—"}</div>
                                     <div className="space-y-1 mb-3">
                                         {o.items.slice(0, 3).map((it, i) => {
                                             const picked = it.picked_qty || 0;
@@ -174,6 +176,7 @@ export default function Outbound() {
             {open && (
                 <NewOutboundModal
                     skus={skus}
+                    customers={customers}
                     onClose={() => setOpen(false)}
                     onSaved={() => {
                         setOpen(false);
@@ -198,10 +201,11 @@ export default function Outbound() {
     );
 }
 
-function NewOutboundModal({ skus, onClose, onSaved }) {
+function NewOutboundModal({ skus, customers, onClose, onSaved }) {
     const [form, setForm] = useState({
         so_number: `SO-${new Date().getFullYear()}-${Math.floor(2000 + Math.random() * 9000)}`,
         customer: "",
+        customer_id: "",
         items: [{ sku_id: "", qty: 1 }],
     });
     const [busy, setBusy] = useState(false);
@@ -279,7 +283,25 @@ function NewOutboundModal({ skus, onClose, onSaved }) {
                 <form onSubmit={submit} className="p-5 space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                         <Field label="SO Number" value={form.so_number} onChange={(v) => setForm({ ...form, so_number: v })} testid="new-outbound-so" />
-                        <Field label="Customer" value={form.customer} onChange={(v) => setForm({ ...form, customer: v })} testid="new-outbound-customer" />
+                        <div>
+                            <label className="block text-[10px] uppercase tracking-[0.15em] text-gray-500 font-semibold mb-1.5">
+                                Customer
+                            </label>
+                            <select
+                                data-testid="new-outbound-customer"
+                                value={form.customer_id}
+                                onChange={(e) => {
+                                    const c = customers.find((x) => x.id === e.target.value);
+                                    setForm({ ...form, customer_id: e.target.value, customer: c ? c.name : "" });
+                                }}
+                                className="w-full bg-[#090a0c] border border-white/10 px-2 py-2 text-sm font-mono"
+                            >
+                                <option value="">— Select Customer —</option>
+                                {customers.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
 
                     <div className="border border-cyan-500/30 bg-cyan-500/5 p-3 flex items-start gap-2">
