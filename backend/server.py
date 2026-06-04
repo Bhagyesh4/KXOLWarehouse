@@ -2454,22 +2454,6 @@ async def on_shutdown():
     await _db.close_pool()
 
 
-# ---------- Mount ----------
-app.include_router(api)
-
-origins_env = os.environ.get("CORS_ORIGINS", "*")
-allowed = [o.strip() for o in origins_env.split(",")] if origins_env != "*" else ["*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-
 # ════════════════════════════════════════════════════
 # CUSTOMERS & VENDORS
 # ════════════════════════════════════════════════════
@@ -2831,6 +2815,22 @@ async def delete_sale(so_id: str, user: dict = Depends(require_role("manager")))
             raise HTTPException(409, "Only draft or cancelled orders can be deleted")
         await conn.execute("DELETE FROM sales_orders WHERE id=$1", so_id)
     return {"ok": True}
+
+
+# ---------- Mount ----------
+app.include_router(api)
+
+origins_env = os.environ.get("CORS_ORIGINS", "*")
+allowed = [o.strip() for o in origins_env.split(",")] if origins_env != "*" else ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 @api.get("/")
