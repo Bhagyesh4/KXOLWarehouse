@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
     Gauge,
@@ -30,6 +31,11 @@ const ADMIN_NAV = [
 export default function Layout() {
     const { user, logout } = useAuth();
     const nav = useNavigate();
+    const [now, setNow] = useState(new Date());
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
 
     const handleLogout = async () => {
         await logout();
@@ -136,7 +142,7 @@ export default function Layout() {
                         </div>
                     </div>
                     <div className="font-mono text-xs text-gray-400 hidden md:block">
-                        {new Date().toLocaleString()}
+                        {now.toLocaleString()}
                     </div>
                 </header>
 
