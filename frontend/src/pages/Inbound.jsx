@@ -800,13 +800,6 @@ function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSav
                                 ))}
                             </select>
                         </div>
-                        <Field
-                            label="Expected Date"
-                            type="date"
-                            value={form.expected_date}
-                            onChange={(v) => setForm({ ...form, expected_date: v })}
-                            testid="new-inbound-date"
-                        />
                     </div>
 
                     <div>
@@ -895,26 +888,30 @@ function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSav
                                             placeholder="Batch / Lot No."
                                             className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
                                         />
-                                        <input
-                                            data-testid={`inbound-item-mfg-${i}`}
-                                            type="date"
-                                            value={it.manufacture_date}
-                                            onChange={(e) =>
-                                                updateRow(i, "manufacture_date", e.target.value)
-                                            }
-                                            placeholder="MFG"
-                                            className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
-                                        />
-                                        <input
-                                            data-testid={`inbound-item-exp-${i}`}
-                                            type="date"
-                                            value={it.expiry_date}
-                                            onChange={(e) =>
-                                                updateRow(i, "expiry_date", e.target.value)
-                                            }
-                                            placeholder="EXP"
-                                            className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
-                                        />
+                                        <label className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-gray-500 uppercase tracking-widest">Manufacturing Date</span>
+                                            <input
+                                                data-testid={`inbound-item-mfg-${i}`}
+                                                type="date"
+                                                value={it.manufacture_date}
+                                                onChange={(e) =>
+                                                    updateRow(i, "manufacture_date", e.target.value)
+                                                }
+                                                className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                            />
+                                        </label>
+                                        <label className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-gray-500 uppercase tracking-widest">Expiry Date</span>
+                                            <input
+                                                data-testid={`inbound-item-exp-${i}`}
+                                                type="date"
+                                                value={it.expiry_date}
+                                                onChange={(e) =>
+                                                    updateRow(i, "expiry_date", e.target.value)
+                                                }
+                                                className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                            />
+                                        </label>
                                     </div>
                                 </div>
                             ))}
