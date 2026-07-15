@@ -460,11 +460,6 @@ function WarehouseStep({ zones, selected, onSelect, onClose, onNext }) {
                                         </span>
                                     </div>
                                     <div className="mt-3 flex items-center gap-3 font-mono text-[10px] text-gray-500">
-                                        {z.temperature !== null && z.temperature !== undefined && (
-                                            <span className={z.temperature < 0 ? "text-cyan-400" : "text-amber-400"}>
-                                                {z.temperature}°C
-                                            </span>
-                                        )}
                                         <span>{z.bins} slots</span>
                                         <span>{pct}% full</span>
                                     </div>

@@ -19,7 +19,6 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
     const [config, setConfig] = useState({
         zone_code: zone.zone,
         zone_name: zone.name,
-        temperature: zone.temperature ?? 22,
         rows: [DEFAULT_ROW()],
     });
 
@@ -38,7 +37,6 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
             setConfig({
                 zone_code: zone.zone,
                 zone_name: c.zone_name || zone.name,
-                temperature: c.temperature ?? zone.temperature ?? 22,
                 rows: (c.rows && c.rows.length ? c.rows : [DEFAULT_ROW()]).map((r) => ({
                     row: r.row || "A",
                     rack_type: r.rack_type || "A",
@@ -166,20 +164,13 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
 
                 {step === "edit" && (
                     <form onSubmit={submit} className="p-5 space-y-4">
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3">
                             <Field label="Zone Code" value={config.zone_code} disabled />
                             <Field
                                 label="Zone Name"
                                 value={config.zone_name}
                                 onChange={(v) => setConfig({ ...config, zone_name: v })}
                                 testid="config-zone-name"
-                            />
-                            <Field
-                                label="Temperature (°C)"
-                                type="number"
-                                value={config.temperature}
-                                onChange={(v) => setConfig({ ...config, temperature: parseFloat(v) || 0 })}
-                                testid="config-temperature"
                             />
                         </div>
 

@@ -107,19 +107,6 @@ export default function Storage() {
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    {view === "racks" && activeZoneInfo && !activeZoneInfo.placeholder && (
-                        <div className="flex items-center gap-3 border border-cyan-500/30 bg-cyan-500/5 px-4 py-2">
-                            <Snowflake className="text-cyan-400" size={18} />
-                            <div>
-                                <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">
-                                    Temperature
-                                </div>
-                                <div className="font-mono text-cyan-400 text-lg font-semibold">
-                                    {activeZoneInfo.temperature}°C
-                                </div>
-                            </div>
-                        </div>
-                    )}
                     {view === "racks" && isAdmin && (
                         <button
                             onClick={() => setAddZoneModal(true)}
@@ -193,17 +180,6 @@ export default function Storage() {
                                     <div className="text-xs text-gray-400 mt-0.5 truncate">{z.name}</div>
                                 </div>
                                 <div className="flex items-center gap-1 ml-2 shrink-0">
-                                    {z.temperature !== null && z.temperature !== undefined && (
-                                        <div
-                                            className={`font-mono text-[10px] px-1.5 py-0.5 ${
-                                                z.temperature < 0
-                                                    ? "bg-cyan-500/10 text-cyan-400"
-                                                    : "bg-amber-500/10 text-amber-400"
-                                            }`}
-                                        >
-                                            {z.temperature}°C
-                                        </div>
-                                    )}
                                     {isAdmin && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setEditZone(z); }}
@@ -453,7 +429,7 @@ function TabButton({ active, onClick, icon: Icon, label, testid }) {
 
 /* ─── Add Zone Modal ─────────────────────────────────────── */
 function AddZoneModal({ onClose, onCreated }) {
-    const [form, setForm] = useState({ zone_code: "", zone_name: "", temperature: 22 });
+    const [form, setForm] = useState({ zone_code: "", zone_name: "" });
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
 
@@ -466,9 +442,8 @@ function AddZoneModal({ onClose, onCreated }) {
             await api.post("/storage/zones", {
                 zone_code: code,
                 zone_name: form.zone_name.trim() || code,
-                temperature: parseFloat(form.temperature) || 22,
             });
-            onCreated({ zone: code, name: form.zone_name.trim() || code, temperature: parseFloat(form.temperature) || 22, placeholder: true });
+            onCreated({ zone: code, name: form.zone_name.trim() || code, placeholder: true });
         } catch (er) {
             setErr(er.response?.data?.detail || er.message);
             setBusy(false);
@@ -506,15 +481,6 @@ function AddZoneModal({ onClose, onCreated }) {
                             className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
                         />
                     </div>
-                    <div>
-                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Temperature (°C)</label>
-                        <input
-                            type="number"
-                            value={form.temperature}
-                            onChange={(e) => setForm({ ...form, temperature: e.target.value })}
-                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
-                        />
-                    </div>
                     {err && <div className="text-xs text-red-400 font-mono border border-red-500/30 bg-red-500/10 p-3">{err}</div>}
                     <div className="flex gap-2 pt-1">
                         <button type="button" onClick={onClose} className="flex-1 border border-white/10 text-gray-400 py-2.5 text-sm uppercase tracking-wider hover:text-white">
@@ -532,7 +498,7 @@ function AddZoneModal({ onClose, onCreated }) {
 
 /* ─── Edit Zone Modal ────────────────────────────────────── */
 function EditZoneModal({ zone, onClose, onSaved }) {
-    const [form, setForm] = useState({ zone_name: zone.name, temperature: zone.temperature ?? 22 });
+    const [form, setForm] = useState({ zone_name: zone.name });
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
 
@@ -543,7 +509,6 @@ function EditZoneModal({ zone, onClose, onSaved }) {
         try {
             await api.put(`/storage/zones/${zone.zone}`, {
                 zone_name: form.zone_name.trim(),
-                temperature: parseFloat(form.temperature),
             });
             onSaved();
         } catch (er) {
@@ -575,18 +540,6 @@ function EditZoneModal({ zone, onClose, onSaved }) {
                             required
                             className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
                         />
-                    </div>
-                    <div>
-                        <label className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold block mb-1">Temperature (°C)</label>
-                        <input
-                            type="number"
-                            value={form.temperature}
-                            onChange={(e) => setForm({ ...form, temperature: e.target.value })}
-                            className="w-full bg-[#090a0c] border border-white/10 px-3 py-2 font-mono text-sm focus:border-amber-500 focus:outline-none"
-                        />
-                        {!zone.placeholder && (
-                            <div className="text-[10px] text-gray-600 mt-1">This will update all bin records in this zone.</div>
-                        )}
                     </div>
                     {err && <div className="text-xs text-red-400 font-mono border border-red-500/30 bg-red-500/10 p-3">{err}</div>}
                     <div className="flex gap-2 pt-1">
