@@ -152,8 +152,7 @@ def _validate_sku_fields(body: "SkuIn"):
         raise HTTPException(400, "Weight per Bag must be greater than 0")
     if body.bags_per_pallet is None or body.bags_per_pallet <= 0:
         raise HTTPException(400, "Bags per Pallet must be greater than 0")
-    if not body.dimensions or not body.dimensions.strip():
-        raise HTTPException(400, "Dimensions cannot be empty")
+
 
 
 def _to_decimal(value):
