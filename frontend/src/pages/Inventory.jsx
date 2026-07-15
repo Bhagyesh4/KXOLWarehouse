@@ -593,6 +593,14 @@ function SkuFormModal({ onClose, onSave, initial }) {
     );
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
+    const [unitOptions, setUnitOptions] = useState(["EA"]);
+
+    useEffect(() => {
+        api.get("/admin/units").then(r => {
+            const codes = r.data.map(u => u.code);
+            if (codes.length) setUnitOptions(codes);
+        }).catch(() => {});
+    }, []);
 
     const submit = async (e) => {
         e.preventDefault();
@@ -640,7 +648,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                         <FormField label="Bags per Pallet" type="number" min="0" value={f.bags_per_pallet} onChange={(v) => setF({ ...f, bags_per_pallet: v })} testid="form-sku-bags" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <FormField label="Unit" value={f.unit} onChange={(v) => setF({ ...f, unit: v })} testid="form-sku-unit" />
+                        <FormField label="Unit" type="select" options={unitOptions} value={f.unit} onChange={(v) => setF({ ...f, unit: v })} testid="form-sku-unit" />
                         <FormField label="Reorder Level" type="number" value={f.reorder_level} onChange={(v) => setF({ ...f, reorder_level: v })} testid="form-sku-reorder" />
                     </div>
                     {err && <div className="text-xs text-red-400 font-mono">{err}</div>}

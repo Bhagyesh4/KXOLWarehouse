@@ -306,13 +306,35 @@ CREATE INDEX IF NOT EXISTS idx_po_vendor   ON purchase_orders(vendor_id);
 CREATE INDEX IF NOT EXISTS idx_po_status   ON purchase_orders(status);
 CREATE INDEX IF NOT EXISTS idx_so_customer ON sales_orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_so_status   ON sales_orders(status);
+
+CREATE TABLE IF NOT EXISTS units_of_measurement (
+    id         TEXT PRIMARY KEY,
+    code       TEXT UNIQUE NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
+UNITS_SEED = """
+INSERT INTO units_of_measurement (id, code, name, created_at)
+VALUES
+  ('uom-ea',  'EA',  'Each',     '2024-01-01T00:00:00'),
+  ('uom-kg',  'KG',  'Kilogram', '2024-01-01T00:00:00'),
+  ('uom-lb',  'LB',  'Pound',    '2024-01-01T00:00:00'),
+  ('uom-bag', 'BAG', 'Bag',      '2024-01-01T00:00:00'),
+  ('uom-box', 'BOX', 'Box',      '2024-01-01T00:00:00'),
+  ('uom-pkt', 'PKT', 'Packet',   '2024-01-01T00:00:00'),
+  ('uom-pcs', 'PCS', 'Pieces',   '2024-01-01T00:00:00'),
+  ('uom-ctn', 'CTN', 'Carton',   '2024-01-01T00:00:00'),
+  ('uom-plt', 'PLT', 'Pallet',   '2024-01-01T00:00:00')
+ON CONFLICT (id) DO NOTHING;
+"""
 
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(DDL)
+        await conn.execute(UNITS_SEED)
 
 
 def r(row) -> Optional[dict]:

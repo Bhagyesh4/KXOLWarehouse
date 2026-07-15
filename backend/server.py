@@ -2426,6 +2426,60 @@ async def report_empty_locations(zone: Optional[str] = None, user: dict = Depend
 
 
 # ════════════════════════════════════════════════════
+# ADMIN — UNITS OF MEASUREMENT
+# ════════════════════════════════════════════════════
+
+@api.get("/admin/units")
+async def list_units(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM units_of_measurement ORDER BY code")
+    return [dict(r) for r in rows]
+
+
+class UnitBody(BaseModel):
+    code: str
+    name: str
+
+
+@api.post("/admin/units")
+async def create_unit(body: UnitBody, user: dict = Depends(require_role("admin"))):
+    code = body.code.strip().upper()
+    name = body.name.strip()
+    if not code or not name:
+        raise HTTPException(400, "Code and name are required")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT id FROM units_of_measurement WHERE code=$1", code)
+        if existing:
+            raise HTTPException(409, f"Unit '{code}' already exists")
+        uid = str(uuid.uuid4())
+        await conn.execute(
+            "INSERT INTO units_of_measurement (id, code, name, created_at) VALUES ($1,$2,$3,$4)",
+            uid, code, name, now_iso()
+        )
+        row = await conn.fetchrow("SELECT * FROM units_of_measurement WHERE id=$1", uid)
+    return dict(row)
+
+
+@api.delete("/admin/units/{unit_id}")
+async def delete_unit(unit_id: str, user: dict = Depends(require_role("admin"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT code FROM units_of_measurement WHERE id=$1", unit_id)
+        if not row:
+            raise HTTPException(404, "Unit not found")
+        # Prevent deleting if SKUs use this unit
+        in_use = await conn.fetchval(
+            "SELECT COUNT(*) FROM skus WHERE unit=$1", row["code"]
+        )
+        if in_use:
+            raise HTTPException(409, f"Cannot delete '{row['code']}' — {in_use} SKU(s) use this unit")
+        await conn.execute("DELETE FROM units_of_measurement WHERE id=$1", unit_id)
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════
 # ADMIN — DATA MANAGEMENT
 # ════════════════════════════════════════════════════
 

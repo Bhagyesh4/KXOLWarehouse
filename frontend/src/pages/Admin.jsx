@@ -9,6 +9,8 @@ import {
     Loader2,
     Users,
     UserPlus,
+    Ruler,
+    Plus,
 } from "lucide-react";
 
 const ROLES = ["admin", "manager", "operator"];
@@ -60,6 +62,8 @@ export default function Admin() {
             </div>
 
             <UserManagement currentUser={user} />
+
+            <UnitsOfMeasurement />
 
             {/* Danger Zone */}
             <div className="border border-red-500/30 bg-red-950/10 p-6 space-y-4">
@@ -320,6 +324,143 @@ function UserManagement({ currentUser }) {
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/* ─── Units of Measurement ───────────────────────────────── */
+function UnitsOfMeasurement() {
+    const [units, setUnits] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [form, setForm] = useState({ code: "", name: "" });
+    const [saving, setSaving] = useState(false);
+    const [deletingId, setDeletingId] = useState(null);
+
+    const load = async () => {
+        try {
+            const res = await api.get("/admin/units");
+            setUnits(res.data);
+        } catch {
+            toast.error("Failed to load units");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const handleCreate = async (e) => {
+        e.preventDefault();
+        if (!form.code.trim() || !form.name.trim()) {
+            toast.error("Code and name are required");
+            return;
+        }
+        setSaving(true);
+        try {
+            await api.post("/admin/units", { code: form.code.trim(), name: form.name.trim() });
+            toast.success("Unit created");
+            setForm({ code: "", name: "" });
+            await load();
+        } catch (err) {
+            toast.error(formatErr(err.response?.data?.detail) || "Failed to create unit");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async (u) => {
+        setDeletingId(u.id);
+        try {
+            await api.delete(`/admin/units/${u.id}`);
+            toast.success(`Unit '${u.code}' removed`);
+            await load();
+        } catch (err) {
+            toast.error(formatErr(err.response?.data?.detail) || "Failed to delete unit");
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    return (
+        <div className="border border-white/10 bg-[#181a20] p-6 space-y-5">
+            <div className="flex items-center gap-3">
+                <Ruler size={20} className="text-amber-400" />
+                <h2 className="text-base font-semibold uppercase tracking-wider">
+                    Units of Measurement
+                </h2>
+            </div>
+
+            {/* Create form */}
+            <form onSubmit={handleCreate} className="border-t border-white/10 pt-4 space-y-3">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Add New Unit
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field
+                        label="Code (e.g. KG, BOX)"
+                        value={form.code}
+                        onChange={(v) => setForm({ ...form, code: v.toUpperCase() })}
+                        placeholder="EA"
+                    />
+                    <Field
+                        label="Full Name"
+                        value={form.name}
+                        onChange={(v) => setForm({ ...form, name: v })}
+                        placeholder="Each"
+                    />
+                </div>
+                <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-black text-xs font-bold uppercase tracking-wider transition-colors"
+                >
+                    {saving
+                        ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                        : <><Plus size={14} /> Add Unit</>
+                    }
+                </button>
+            </form>
+
+            {/* Unit list */}
+            <div className="border-t border-white/10 pt-4 space-y-2">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Configured Units {units.length > 0 && `(${units.length})`}
+                </div>
+                {loading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                        <Loader2 size={14} className="animate-spin" /> Loading…
+                    </div>
+                ) : units.length === 0 ? (
+                    <div className="text-sm text-gray-500 py-4">No units configured.</div>
+                ) : (
+                    <div className="space-y-2">
+                        {units.map((u) => (
+                            <div
+                                key={u.id}
+                                className="flex items-center justify-between gap-3 border border-white/10 bg-[#090a0c] px-4 py-3"
+                            >
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <span className="font-mono text-sm font-bold text-amber-400 w-14 shrink-0">
+                                        {u.code}
+                                    </span>
+                                    <span className="text-sm text-gray-300 truncate">{u.name}</span>
+                                </div>
+                                <button
+                                    onClick={() => handleDelete(u)}
+                                    disabled={deletingId === u.id}
+                                    title={`Remove ${u.code}`}
+                                    className="flex items-center justify-center w-8 h-8 text-gray-500 hover:text-red-400 disabled:opacity-30 transition-colors"
+                                >
+                                    {deletingId === u.id
+                                        ? <Loader2 size={15} className="animate-spin" />
+                                        : <Trash2 size={15} />
+                                    }
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>
