@@ -251,7 +251,7 @@ export default function Inventory() {
                             onClick={() => setColorFilter(null)}
                             className="font-mono text-[10px] uppercase tracking-wider text-amber-400 hover:text-amber-300"
                         >
-                            Clear filter ✕
+                            All Categories
                         </button>
                     )}
                 </div>
