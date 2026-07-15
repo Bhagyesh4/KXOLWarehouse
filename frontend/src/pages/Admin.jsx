@@ -10,6 +10,7 @@ import {
     Users,
     UserPlus,
     Ruler,
+    Tag,
     Plus,
 } from "lucide-react";
 
@@ -64,6 +65,8 @@ export default function Admin() {
             <UserManagement currentUser={user} />
 
             <UnitsOfMeasurement />
+
+            <SkuCategories />
 
             {/* Danger Zone */}
             <div className="border border-red-500/30 bg-red-950/10 p-6 space-y-4">
@@ -455,6 +458,130 @@ function UnitsOfMeasurement() {
                                     className="flex items-center justify-center w-8 h-8 text-gray-500 hover:text-red-400 disabled:opacity-30 transition-colors"
                                 >
                                     {deletingId === u.id
+                                        ? <Loader2 size={15} className="animate-spin" />
+                                        : <Trash2 size={15} />
+                                    }
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/* ─── SKU Categories ─────────────────────────────────────── */
+function SkuCategories() {
+    const [categories, setCategories] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [name, setName] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [deletingId, setDeletingId] = useState(null);
+
+    const load = async () => {
+        try {
+            const res = await api.get("/admin/categories");
+            setCategories(res.data);
+        } catch {
+            toast.error("Failed to load categories");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const handleCreate = async (e) => {
+        e.preventDefault();
+        if (!name.trim()) { toast.error("Category name is required"); return; }
+        setSaving(true);
+        try {
+            await api.post("/admin/categories", { name: name.trim() });
+            toast.success("Category created");
+            setName("");
+            await load();
+        } catch (err) {
+            toast.error(formatErr(err.response?.data?.detail) || "Failed to create category");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async (cat) => {
+        setDeletingId(cat.id);
+        try {
+            await api.delete(`/admin/categories/${cat.id}`);
+            toast.success(`Category '${cat.name}' removed`);
+            await load();
+        } catch (err) {
+            toast.error(formatErr(err.response?.data?.detail) || "Failed to delete category");
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    return (
+        <div className="border border-white/10 bg-[#181a20] p-6 space-y-5">
+            <div className="flex items-center gap-3">
+                <Tag size={20} className="text-amber-400" />
+                <h2 className="text-base font-semibold uppercase tracking-wider">
+                    SKU Categories
+                </h2>
+            </div>
+
+            {/* Create form */}
+            <form onSubmit={handleCreate} className="border-t border-white/10 pt-4 space-y-3">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Add New Category
+                </div>
+                <div className="flex gap-3">
+                    <Field
+                        label="Category Name"
+                        value={name}
+                        onChange={setName}
+                        placeholder="e.g. Frozen Seafood"
+                        className="flex-1"
+                    />
+                </div>
+                <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-black text-xs font-bold uppercase tracking-wider transition-colors"
+                >
+                    {saving
+                        ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                        : <><Plus size={14} /> Add Category</>
+                    }
+                </button>
+            </form>
+
+            {/* Category list */}
+            <div className="border-t border-white/10 pt-4 space-y-2">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Configured Categories {categories.length > 0 && `(${categories.length})`}
+                </div>
+                {loading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                        <Loader2 size={14} className="animate-spin" /> Loading…
+                    </div>
+                ) : categories.length === 0 ? (
+                    <div className="text-sm text-gray-500 py-4">No categories configured.</div>
+                ) : (
+                    <div className="space-y-2">
+                        {categories.map((cat) => (
+                            <div
+                                key={cat.id}
+                                className="flex items-center justify-between gap-3 border border-white/10 bg-[#090a0c] px-4 py-3"
+                            >
+                                <span className="text-sm text-gray-200">{cat.name}</span>
+                                <button
+                                    onClick={() => handleDelete(cat)}
+                                    disabled={deletingId === cat.id}
+                                    title={`Remove ${cat.name}`}
+                                    className="flex items-center justify-center w-8 h-8 text-gray-500 hover:text-red-400 disabled:opacity-30 transition-colors"
+                                >
+                                    {deletingId === cat.id
                                         ? <Loader2 size={15} className="animate-spin" />
                                         : <Trash2 size={15} />
                                     }

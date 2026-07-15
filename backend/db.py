@@ -313,6 +313,12 @@ CREATE TABLE IF NOT EXISTS units_of_measurement (
     name       TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sku_categories (
+    id         TEXT PRIMARY KEY,
+    name       TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 UNITS_SEED = """
@@ -330,11 +336,28 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 """
 
+CATEGORIES_SEED = """
+INSERT INTO sku_categories (id, name, created_at)
+VALUES
+  ('cat-frozen-meat',   'Frozen Meat',       '2024-01-01T00:00:00'),
+  ('cat-frozen-seafood','Frozen Seafood',     '2024-01-01T00:00:00'),
+  ('cat-frozen-veg',    'Frozen Vegetables',  '2024-01-01T00:00:00'),
+  ('cat-frozen-fruit',  'Frozen Fruit',       '2024-01-01T00:00:00'),
+  ('cat-dairy',         'Dairy & Eggs',       '2024-01-01T00:00:00'),
+  ('cat-ice-cream',     'Ice Cream',          '2024-01-01T00:00:00'),
+  ('cat-ready-meals',   'Ready Meals',        '2024-01-01T00:00:00'),
+  ('cat-dry-goods',     'Dry Goods',          '2024-01-01T00:00:00'),
+  ('cat-beverages',     'Beverages',          '2024-01-01T00:00:00'),
+  ('cat-packaging',     'Packaging',          '2024-01-01T00:00:00')
+ON CONFLICT (id) DO NOTHING;
+"""
+
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(DDL)
         await conn.execute(UNITS_SEED)
+        await conn.execute(CATEGORIES_SEED)
 
 
 def r(row) -> Optional[dict]:

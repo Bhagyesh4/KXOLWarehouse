@@ -594,11 +594,16 @@ function SkuFormModal({ onClose, onSave, initial }) {
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
     const [unitOptions, setUnitOptions] = useState(["EA"]);
+    const [categoryOptions, setCategoryOptions] = useState([]);
 
     useEffect(() => {
         api.get("/admin/units").then(r => {
             const codes = r.data.map(u => u.code);
             if (codes.length) setUnitOptions(codes);
+        }).catch(() => {});
+        api.get("/admin/categories").then(r => {
+            const names = r.data.map(c => c.name);
+            if (names.length) setCategoryOptions(names);
         }).catch(() => {});
     }, []);
 
@@ -642,7 +647,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                 <form onSubmit={submit} className="p-5 space-y-3">
                     <FormField label="SKU Code" value={f.sku_code} onChange={(v) => setF({ ...f, sku_code: v })} disabled={!!initial} testid="form-sku-code" />
                     <FormField label="Name" value={f.name} onChange={(v) => setF({ ...f, name: v })} testid="form-sku-name" />
-                    <FormField label="Category" value={f.category} onChange={(v) => setF({ ...f, category: v })} testid="form-sku-category" />
+                    <FormField label="Category" type="select" options={categoryOptions} value={f.category} onChange={(v) => setF({ ...f, category: v })} testid="form-sku-category" />
                     <div className="grid grid-cols-2 gap-3">
                         <FormField label="Weight per Bag" type="number" step="0.01" min="0" value={f.weight_per_bag} onChange={(v) => setF({ ...f, weight_per_bag: v })} testid="form-sku-weight" />
                         <FormField label="Bags per Pallet" type="number" min="0" value={f.bags_per_pallet} onChange={(v) => setF({ ...f, bags_per_pallet: v })} testid="form-sku-bags" />

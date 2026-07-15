@@ -2480,6 +2480,57 @@ async def delete_unit(unit_id: str, user: dict = Depends(require_role("admin")))
 
 
 # ════════════════════════════════════════════════════
+# ADMIN — SKU CATEGORIES
+# ════════════════════════════════════════════════════
+
+@api.get("/admin/categories")
+async def list_categories(user: dict = Depends(get_user)):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM sku_categories ORDER BY name")
+    return [dict(r) for r in rows]
+
+
+class CategoryBody(BaseModel):
+    name: str
+
+
+@api.post("/admin/categories")
+async def create_category(body: CategoryBody, user: dict = Depends(require_role("admin"))):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Category name is required")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT id FROM sku_categories WHERE name=$1", name)
+        if existing:
+            raise HTTPException(409, f"Category '{name}' already exists")
+        cid = str(uuid.uuid4())
+        await conn.execute(
+            "INSERT INTO sku_categories (id, name, created_at) VALUES ($1,$2,$3)",
+            cid, name, now_iso()
+        )
+        row = await conn.fetchrow("SELECT * FROM sku_categories WHERE id=$1", cid)
+    return dict(row)
+
+
+@api.delete("/admin/categories/{cat_id}")
+async def delete_category(cat_id: str, user: dict = Depends(require_role("admin"))):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT name FROM sku_categories WHERE id=$1", cat_id)
+        if not row:
+            raise HTTPException(404, "Category not found")
+        in_use = await conn.fetchval(
+            "SELECT COUNT(*) FROM skus WHERE category=$1", row["name"]
+        )
+        if in_use:
+            raise HTTPException(409, f"Cannot delete '{row['name']}' — {in_use} SKU(s) use this category")
+        await conn.execute("DELETE FROM sku_categories WHERE id=$1", cat_id)
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════
 # ADMIN — DATA MANAGEMENT
 # ════════════════════════════════════════════════════
 
