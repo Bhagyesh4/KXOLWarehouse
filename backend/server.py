@@ -67,22 +67,22 @@ def now_iso() -> str:
 
 def _get_anthropic_client():
     """Return (client, model) using whichever API key is available.
-    Prefers the Replit-managed integration key; falls back to ANTHROPIC_API_KEY."""
+    Prefers the Replit-managed integration key; falls back to ANTHROPIC_API_KEY.
+    Always honours AI_INTEGRATIONS_ANTHROPIC_BASE_URL when present so that
+    Replit's AI proxy is used regardless of which key variable is populated."""
     import anthropic as _anthropic
     integ_key = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
     direct_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if integ_key:
+    base_url = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    # Replit's proxy uses a short alias; only use it when going through the proxy.
+    proxy_model = "claude-sonnet-4-5"
+    direct_model = "claude-3-5-sonnet-20241022"
+    is_proxy = base_url != "https://api.anthropic.com"
+    key = integ_key or direct_key
+    if key:
         return (
-            _anthropic.Anthropic(
-                api_key=integ_key,
-                base_url=os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-            ),
-            "claude-sonnet-4-6",
-        )
-    if direct_key:
-        return (
-            _anthropic.Anthropic(api_key=direct_key),
-            "claude-3-5-sonnet-20241022",
+            _anthropic.Anthropic(api_key=key, base_url=base_url),
+            proxy_model if is_proxy else direct_model,
         )
     raise RuntimeError("No Anthropic API key configured. Set ANTHROPIC_API_KEY in Secrets.")
 
