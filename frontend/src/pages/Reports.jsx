@@ -562,6 +562,15 @@ function StockMovement() {
     const [dateTo, setDateTo] = useState("");
     const [movType, setMovType] = useState("");
     const [skuSearch, setSkuSearch] = useState("");
+    const [skuOptions, setSkuOptions] = useState([{ value: "", label: "All Products" }]);
+
+    useEffect(() => {
+        api.get("/inventory/skus").then(r => {
+            const opts = [{ value: "", label: "All Products" },
+                ...r.data.map(s => ({ value: s.sku_code, label: `${s.sku_code} — ${s.name}` }))];
+            setSkuOptions(opts);
+        }).catch(() => {});
+    }, []);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -570,7 +579,7 @@ function StockMovement() {
             if (dateFrom) p.set("date_from", dateFrom);
             if (dateTo) p.set("date_to", dateTo);
             if (movType) p.set("mov_type", movType);
-            if (skuSearch.trim()) p.set("sku_search", skuSearch.trim());
+            if (skuSearch) p.set("sku_search", skuSearch);
             const r = await api.get(`/reports/stock-movement?${p}`);
             setRows(r.data);
         } finally { setLoading(false); }
@@ -602,7 +611,7 @@ function StockMovement() {
                 <FilterInput label="To Date" type="date" value={dateTo} onChange={setDateTo} />
                 <FilterSelect label="Type" value={movType} onChange={setMovType}
                     options={[{value:"",label:"All Types"},{value:"inbound",label:"Inbound"},{value:"outbound",label:"Outbound"},{value:"transfer",label:"Transfer"}]} />
-                <FilterInput label="Product" value={skuSearch} onChange={setSkuSearch} placeholder="SKU code or name…" />
+                <FilterSelect label="Product" value={skuSearch} onChange={setSkuSearch} options={skuOptions} />
                 <button onClick={load} className="self-end px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold">Apply</button>
             </FilterBar>
             <div className="grid grid-cols-3 gap-3">
