@@ -561,6 +561,7 @@ function StockMovement() {
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
     const [movType, setMovType] = useState("");
+    const [skuSearch, setSkuSearch] = useState("");
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -569,10 +570,11 @@ function StockMovement() {
             if (dateFrom) p.set("date_from", dateFrom);
             if (dateTo) p.set("date_to", dateTo);
             if (movType) p.set("mov_type", movType);
+            if (skuSearch.trim()) p.set("sku_search", skuSearch.trim());
             const r = await api.get(`/reports/stock-movement?${p}`);
             setRows(r.data);
         } finally { setLoading(false); }
-    }, [dateFrom, dateTo, movType]);
+    }, [dateFrom, dateTo, movType, skuSearch]);
 
     useEffect(() => { load(); }, []);
 
@@ -600,6 +602,7 @@ function StockMovement() {
                 <FilterInput label="To Date" type="date" value={dateTo} onChange={setDateTo} />
                 <FilterSelect label="Type" value={movType} onChange={setMovType}
                     options={[{value:"",label:"All Types"},{value:"inbound",label:"Inbound"},{value:"outbound",label:"Outbound"},{value:"transfer",label:"Transfer"}]} />
+                <FilterInput label="Product" value={skuSearch} onChange={setSkuSearch} placeholder="SKU code or name…" />
                 <button onClick={load} className="self-end px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold">Apply</button>
             </FilterBar>
             <div className="grid grid-cols-3 gap-3">

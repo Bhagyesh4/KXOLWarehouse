@@ -2249,9 +2249,11 @@ async def report_stock_movement(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     mov_type: Optional[str] = None,
+    sku_search: Optional[str] = None,
     user: dict = Depends(get_user),
 ):
     pool = await _db.get_pool()
+    sku_like = f"%{sku_search.strip()}%" if sku_search and sku_search.strip() else None
     async with pool.acquire() as conn:
         conds: list = ["1=1"]
         args: list = []
@@ -2264,6 +2266,9 @@ async def report_stock_movement(
         if mov_type and mov_type != "transfer":
             args.append(mov_type)
             conds.append(f"m.type=${len(args)}")
+        if sku_like:
+            args.append(sku_like)
+            conds.append(f"(sk.sku_code ILIKE ${len(args)} OR sk.name ILIKE ${len(args)})")
         where = " AND ".join(conds)
         mov_rows = [] if mov_type == "transfer" else await conn.fetch(
             f"SELECT m.type, m.timestamp, sk.sku_code, sk.name AS sku_name, "
@@ -2279,6 +2284,9 @@ async def report_stock_movement(
         if date_to:
             t_args.append(date_to + "T23:59:59")
             t_conds.append(f"transferred_at<=${len(t_args)}")
+        if sku_like:
+            t_args.append(sku_like)
+            t_conds.append(f"(sku_code ILIKE ${len(t_args)} OR sku_name ILIKE ${len(t_args)})")
         t_where = " AND ".join(t_conds)
         xfer_rows = [] if (mov_type and mov_type != "transfer") else await conn.fetch(
             f"SELECT 'transfer' AS type, transferred_at AS timestamp, sku_code, sku_name, "
