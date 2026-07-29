@@ -25,9 +25,10 @@ import RackElevationSVG from "../components/RackElevationSVG";
 import ShuttleZone from "./ShuttleZone";
 import { useAuth } from "../context/AuthContext";
 
+const SHUTTLE_ZONE_CODE = "SHUTTLE_ZONE_A";
+
 export default function Storage() {
     const { user } = useAuth();
-    const [view, setView] = useState("racks");
     const [zones, setZones] = useState([]);
     const [activeZone, setActiveZone] = useState(null);
     const [lanes, setLanes] = useState([]);
@@ -100,14 +101,14 @@ export default function Storage() {
             <div className="flex items-end justify-between flex-wrap gap-3">
                 <div>
                     <div className="font-mono text-[10px] tracking-[0.3em] text-amber-400 uppercase">
-                        // STORAGE // {view === "shuttle" ? "SHUTTLE FIFO ZONE" : "RACK SYSTEMS"}
+                        // STORAGE // {activeZone === SHUTTLE_ZONE_CODE ? "SHUTTLE FIFO ZONE" : "RACK SYSTEMS"}
                     </div>
                     <h1 className="text-3xl font-bold tracking-tight mt-1">
                         Warehouse Storage
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    {view === "racks" && isAdmin && (
+                    {activeZone !== SHUTTLE_ZONE_CODE && isAdmin && (
                         <button
                             onClick={() => setAddZoneModal(true)}
                             className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 text-xs font-bold uppercase tracking-wider"
@@ -118,25 +119,7 @@ export default function Storage() {
                 </div>
             </div>
 
-            {/* View switcher: Rack Systems ⇄ Shuttle FIFO Zone */}
-            <div className="flex items-center gap-2 border-b border-white/10">
-                <TabButton
-                    active={view === "racks"}
-                    onClick={() => setView("racks")}
-                    icon={Layers}
-                    label="Rack Systems"
-                    testid="storage-tab-racks"
-                />
-                <TabButton
-                    active={view === "shuttle"}
-                    onClick={() => setView("shuttle")}
-                    icon={Zap}
-                    label="Shuttle FIFO Zone"
-                    testid="storage-tab-shuttle"
-                />
-            </div>
-
-            {view === "shuttle" ? (
+            {activeZone === SHUTTLE_ZONE_CODE ? (
                 <ShuttleZone embedded />
             ) : (
             <>
@@ -165,17 +148,26 @@ export default function Storage() {
                         <div
                             key={z.zone}
                             className={`relative text-left p-4 border transition-colors cursor-pointer ${
-                                active
-                                    ? "border-amber-500 bg-amber-500/5"
-                                    : "border-white/10 bg-[#181a20] hover:border-amber-500/40"
+                                z.zone === SHUTTLE_ZONE_CODE
+                                    ? active
+                                        ? "border-cyan-500 bg-cyan-500/5"
+                                        : "border-cyan-500/30 bg-[#181a20] hover:border-cyan-400/60"
+                                    : active
+                                        ? "border-amber-500 bg-amber-500/5"
+                                        : "border-white/10 bg-[#181a20] hover:border-amber-500/40"
                             } ${z.placeholder ? "opacity-70" : ""}`}
                             onClick={() => setActiveZone(z.zone)}
                             data-testid={`zone-${z.zone}`}
                         >
                             <div className="flex items-start justify-between">
                                 <div className="min-w-0 flex-1">
-                                    <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase">
-                                        {z.zone}
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="font-mono text-[10px] tracking-widest text-gray-500 uppercase">
+                                            {z.zone}
+                                        </div>
+                                        {z.zone === SHUTTLE_ZONE_CODE && (
+                                            <Zap size={10} className="text-cyan-400 shrink-0" />
+                                        )}
                                     </div>
                                     <div className="text-xs text-gray-400 mt-0.5 truncate">{z.name}</div>
                                 </div>
