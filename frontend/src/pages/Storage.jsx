@@ -119,14 +119,8 @@ export default function Storage() {
                 </div>
             </div>
 
-            {activeZone === SHUTTLE_ZONE_CODE ? (
-                <ShuttleZone embedded />
-            ) : (
-            <>
-            {/* RACK SYSTEMS VIEW */}
-
             {/* Flow Rack System Panel */}
-            {flowLanes.length > 0 && (
+            {activeZone !== SHUTTLE_ZONE_CODE && flowLanes.length > 0 && (
                 <FlowRackPanel
                     flowLanes={flowLanes}
                     skus={skus}
@@ -218,6 +212,10 @@ export default function Storage() {
                     );
                 })}
             </div>
+
+            {activeZone === SHUTTLE_ZONE_CODE ? (
+                <ShuttleZone embedded />
+            ) : <>
 
             {activeZoneInfo?.placeholder && (
                 <div className="bg-[#181a20] border border-dashed border-white/15 p-12 text-center">
@@ -330,6 +328,8 @@ export default function Storage() {
                 </>
             )}
 
+            </>}
+
             {openLane && (
                 <LaneDrawer
                     lane={openLane}
@@ -395,8 +395,6 @@ export default function Storage() {
                         });
                     }}
                 />
-            )}
-            </>
             )}
         </div>
     );
