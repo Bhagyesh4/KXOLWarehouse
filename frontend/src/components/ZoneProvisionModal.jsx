@@ -16,6 +16,7 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
     const [step, setStep] = useState("upload"); // upload | edit
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
+    const [blueprintImage, setBlueprintImage] = useState(null);
     const [config, setConfig] = useState({
         zone_code: zone.zone,
         zone_name: zone.name,
@@ -33,6 +34,7 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
             const r = await api.post("/storage/parse-blueprint", fd, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
+            if (r.data.blueprint_image) setBlueprintImage(r.data.blueprint_image);
             const c = r.data.config;
             setConfig({
                 zone_code: zone.zone,
@@ -164,6 +166,24 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
 
                 {step === "edit" && (
                     <form onSubmit={submit} className="p-5 space-y-4">
+                        {blueprintImage && (
+                            <div className="border border-white/10 bg-[#0d0e12]">
+                                <div className="px-3 py-1.5 border-b border-white/10 flex items-center gap-2">
+                                    <span className="font-mono text-[9px] uppercase tracking-widest text-amber-400">
+                                        // BLUEPRINT REFERENCE
+                                    </span>
+                                    <span className="text-[10px] text-gray-500">scroll to view full drawing</span>
+                                </div>
+                                <div className="overflow-auto max-h-64">
+                                    <img
+                                        src={blueprintImage}
+                                        alt="Blueprint"
+                                        className="w-full"
+                                        style={{ minWidth: 600 }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                             <Field label="Zone Code" value={config.zone_code} disabled />
                             <Field

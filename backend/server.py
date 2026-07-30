@@ -85,19 +85,10 @@ def _get_anthropic_client():
             "claude-sonnet-4-5",
         )
     if direct_key:
-        # When AI_INTEGRATIONS_ANTHROPIC_BASE_URL points to Replit's local proxy
-        # (localhost:…), use the proxy URL + proxy model alias — the key was
-        # provisioned by Replit and only works through that proxy.
-        # Otherwise talk directly to api.anthropic.com.
-        base_url = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "")
-        if base_url and "localhost" in base_url:
-            return (
-                _anthropic.Anthropic(api_key=direct_key, base_url=base_url),
-                "claude-sonnet-4-5",
-            )
+        # claude-sonnet-4-5 is the current model available on this account.
         return (
             _anthropic.Anthropic(api_key=direct_key),
-            "claude-3-5-sonnet-20241022",
+            "claude-sonnet-4-5",
         )
     raise RuntimeError("No Anthropic API key configured. Set ANTHROPIC_API_KEY in Secrets.")
 
@@ -920,6 +911,17 @@ async def parse_blueprint(
     except Exception as e:
         raise HTTPException(400, f"Could not read PDF: {e}")
 
+    # --- Always generate a thumbnail for reference in the edit step ---
+    try:
+        first_page = doc[0]
+        page_w = first_page.rect.width
+        thumb_scale = 1200 / page_w if page_w > 0 else 0.2
+        pix = first_page.get_pixmap(matrix=fitz.Matrix(thumb_scale, thumb_scale))
+        thumb_b64 = base64.standard_b64encode(pix.tobytes("jpeg", jpg_quality=75)).decode()
+        blueprint_image = f"data:image/jpeg;base64,{thumb_b64}"
+    except Exception:
+        blueprint_image = None
+
     # --- Try text extraction first (vector/native PDFs) ---
     text = ""
     for page in doc:
@@ -932,19 +934,22 @@ async def parse_blueprint(
             # Text-based PDF: send as plain text
             _resp = _client.messages.create(
                 model=_model,
-                max_tokens=1024,
+                max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": f"BLUEPRINT TEXT:\n\n{text[:8000]}"}],
+                messages=[{"role": "user", "content": f"BLUEPRINT TEXT:\n\n{text[:30000]}"}],
             )
         else:
             # Image-based (scanned) PDF: render pages to PNG and use Claude vision
             images_content = []
-            max_pages = min(len(doc), 3)  # send at most 3 pages
+            max_pages = min(len(doc), 5)
             for i in range(max_pages):
                 page = doc[i]
-                # Render at 150 dpi (scale=2 = 144 dpi, good balance of size vs quality)
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                png_bytes = pix.tobytes("png")
+                # Cap longest side at 3500px to stay within Claude's image size limit
+                rect = doc[i].rect
+                max_side = max(rect.width, rect.height)
+                ai_scale = min(2.0, 3500 / max_side) if max_side > 0 else 1.0
+                pix_ai = page.get_pixmap(matrix=fitz.Matrix(ai_scale, ai_scale))
+                png_bytes = pix_ai.tobytes("png")
                 b64 = base64.standard_b64encode(png_bytes).decode()
                 images_content.append({
                     "type": "image",
@@ -952,11 +957,14 @@ async def parse_blueprint(
                 })
             images_content.append({
                 "type": "text",
-                "text": "Extract the warehouse rack/lane configuration from these blueprint images.",
+                "text": (
+                    "Extract the COMPLETE warehouse rack/lane configuration from ALL rows visible "
+                    "in these blueprint images. Do not stop early — include every row you can see."
+                ),
             })
             _resp = _client.messages.create(
                 model=_model,
-                max_tokens=1024,
+                max_tokens=4096,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": images_content}],
             )
@@ -969,7 +977,7 @@ async def parse_blueprint(
             if cleaned.startswith("json"):
                 cleaned = cleaned[4:]
         config = json_lib.loads(cleaned.strip())
-        return {"config": config, "raw_response": response}
+        return {"config": config, "raw_response": response, "blueprint_image": blueprint_image}
     except Exception as e:
         doc.close()
         return {
@@ -979,6 +987,7 @@ async def parse_blueprint(
                           "levels": 4, "depth": 4, "weight_kg": 8000}],
             },
             "warning": f"AI parse failed, returning defaults: {str(e)[:200]}",
+            "blueprint_image": blueprint_image,
         }
 
 
