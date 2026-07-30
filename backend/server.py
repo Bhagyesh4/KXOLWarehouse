@@ -902,34 +902,66 @@ async def parse_blueprint(
     user: dict = Depends(require_role("admin", "manager")),
 ):
     import json as json_lib
+    import base64
     import fitz
+
+    SYSTEM_PROMPT = (
+        "You are a warehouse blueprint analyst. Extract rack/lane configuration from the blueprint "
+        "and return STRICT JSON only (no prose, no markdown). Schema: "
+        '{"zone_name": "string", "rows": ['
+        '{"row": "A|B|C|...", "rack_type": "A|B|C", "lanes": int, "lane_start": int, '
+        '"levels": int, "depth": int, "weight_kg": int}]}. '
+        "If a field is unclear, infer reasonable defaults (levels=4, depth=4, weight_kg=8000)."
+    )
+
     raw = await file.read()
-    text = ""
     try:
         doc = fitz.open(stream=raw, filetype="pdf")
-        for page in doc:
-            text += page.get_text() + "\n"
-        doc.close()
     except Exception as e:
         raise HTTPException(400, f"Could not read PDF: {e}")
-    if not text.strip():
-        raise HTTPException(400, "Could not extract text from blueprint")
+
+    # --- Try text extraction first (vector/native PDFs) ---
+    text = ""
+    for page in doc:
+        text += page.get_text() + "\n"
+
     try:
         _client, _model = _get_anthropic_client()
-        _resp = _client.messages.create(
-            model=_model,
-            max_tokens=1024,
-            system=(
-                "You are a warehouse blueprint analyst. Extract rack/lane configuration from the blueprint text "
-                "and return STRICT JSON only (no prose, no markdown). Schema: "
-                '{"zone_name": "string", "temperature": number_celsius, "rows": ['
-                '{"row": "A|B|C|...", "rack_type": "A|B|C", "lanes": int, "lane_start": int, '
-                '"levels": int, "depth": int, "weight_kg": int}]}. '
-                "If a field is unclear, infer reasonable defaults (levels=4, depth=4, weight_kg=8000). "
-                "If the blueprint mentions cold storage temperature use it; otherwise use 22 (ambient)."
-            ),
-            messages=[{"role": "user", "content": f"BLUEPRINT TEXT:\n\n{text[:8000]}"}],
-        )
+
+        if text.strip():
+            # Text-based PDF: send as plain text
+            _resp = _client.messages.create(
+                model=_model,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": f"BLUEPRINT TEXT:\n\n{text[:8000]}"}],
+            )
+        else:
+            # Image-based (scanned) PDF: render pages to PNG and use Claude vision
+            images_content = []
+            max_pages = min(len(doc), 3)  # send at most 3 pages
+            for i in range(max_pages):
+                page = doc[i]
+                # Render at 150 dpi (scale=2 = 144 dpi, good balance of size vs quality)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                png_bytes = pix.tobytes("png")
+                b64 = base64.standard_b64encode(png_bytes).decode()
+                images_content.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                })
+            images_content.append({
+                "type": "text",
+                "text": "Extract the warehouse rack/lane configuration from these blueprint images.",
+            })
+            _resp = _client.messages.create(
+                model=_model,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": images_content}],
+            )
+
+        doc.close()
         response = _resp.content[0].text
         cleaned = response.strip()
         if cleaned.startswith("```"):
@@ -939,9 +971,13 @@ async def parse_blueprint(
         config = json_lib.loads(cleaned.strip())
         return {"config": config, "raw_response": response}
     except Exception as e:
+        doc.close()
         return {
-            "config": {"zone_name": "New Zone", "temperature": 22,
-                       "rows": [{"row": "A", "rack_type": "A", "lanes": 5, "lane_start": 1, "levels": 4, "depth": 4, "weight_kg": 8000}]},
+            "config": {
+                "zone_name": "New Zone",
+                "rows": [{"row": "A", "rack_type": "A", "lanes": 5, "lane_start": 1,
+                          "levels": 4, "depth": 4, "weight_kg": 8000}],
+            },
             "warning": f"AI parse failed, returning defaults: {str(e)[:200]}",
         }
 
