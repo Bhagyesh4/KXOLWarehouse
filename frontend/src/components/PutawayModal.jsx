@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import Scanner from "./Scanner";
 import {
     X,
@@ -49,7 +49,7 @@ export default function PutawayModal({ order, skuMap, locMap, onClose, onComplet
             } catch (err) {
                 setMessage({
                     type: "error",
-                    text: err.response?.data?.detail || "Scan failed — check barcode and try again",
+                    text: formatErr(err.response?.data?.detail) || "Scan failed — check barcode and try again",
                 });
             } finally {
                 setBusy(false);

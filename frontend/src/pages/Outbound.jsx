@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import { Plus, X, ArrowRight, Printer, ScanLine, Check } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Scanner from "../components/Scanner";
@@ -252,7 +252,7 @@ function NewOutboundModal({ skus, customers, onClose, onSaved }) {
             await api.post("/outbound", { ...form, items });
             onSaved();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
         } finally {
             setBusy(false);
         }
@@ -410,7 +410,7 @@ function PickScanModal({ order, skus, onClose, onPicked }) {
             setManual("");
             await onPicked();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
         } finally {
             setBusy(false);
         }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import {
     Snowflake,
     Layers,
@@ -435,7 +435,7 @@ function AddZoneModal({ onClose, onCreated }) {
             });
             onCreated({ zone: code, name: form.zone_name.trim() || code, placeholder: true });
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };
@@ -502,7 +502,7 @@ function EditZoneModal({ zone, onClose, onSaved }) {
             });
             onSaved();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };
@@ -559,7 +559,7 @@ function DeleteZoneConfirm({ zone, onClose, onDeleted }) {
             await api.delete(`/storage/zones/${zone.zone}`);
             onDeleted();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };
@@ -1427,7 +1427,7 @@ function LaneInboundModal({ skus, zone, lane, onClose, onSaved }) {
             );
             setResult(r.data);
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };
@@ -1573,7 +1573,7 @@ function LaneOutboundConfirm({ zone, lane, target, onClose, onDispatched }) {
             );
             setDispatched(r.data.dispatched);
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };

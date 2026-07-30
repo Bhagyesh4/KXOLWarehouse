@@ -241,7 +241,7 @@ class FlowLaneAssignIn(BaseModel):
 class ZoneProvisionIn(BaseModel):
     zone_code: str
     zone_name: str
-    temperature: float
+    temperature: Optional[float] = 22.0
     rows: List[dict]
 
 

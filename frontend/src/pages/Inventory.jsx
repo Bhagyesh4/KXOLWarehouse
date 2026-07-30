@@ -627,7 +627,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                 reorder_level: parseInt(f.reorder_level) || 0,
             });
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
         } finally {
             setBusy(false);
         }

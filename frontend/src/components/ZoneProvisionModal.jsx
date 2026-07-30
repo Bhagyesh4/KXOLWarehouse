@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import { X, Upload, Sparkles, Plus, Trash2, Loader } from "lucide-react";
+
+const extractErr = (er) => formatErr(er?.response?.data?.detail) || er?.message || "Unknown error";
 
 const DEFAULT_ROW = () => ({
     row: "A",
@@ -51,7 +53,7 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
             });
             setStep("edit");
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(extractErr(er));
         } finally {
             setBusy(false);
         }
@@ -67,7 +69,7 @@ export default function ZoneProvisionModal({ zone, onClose, onSaved }) {
             await api.post(`/storage/zones/${zone.zone}/provision`, config);
             onSaved();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(extractErr(er));
         } finally {
             setBusy(false);
         }

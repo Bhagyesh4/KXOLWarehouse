@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import RackElevationSVG, { MultiLaneRackSVG } from "../components/RackElevationSVG";
 import {
@@ -414,7 +414,7 @@ function InboundModal({ skus, laneNo, levelNo, matrixEntry, onClose, onSaved }) 
             });
             onSaved();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };
@@ -507,7 +507,7 @@ function OutboundModal({ laneNo, levelNo, d01, onClose, onDispatched }) {
             });
             onDispatched(r.data);
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
             setBusy(false);
         }
     };

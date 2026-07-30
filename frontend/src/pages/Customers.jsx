@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, X, Users, Truck } from "lucide-react";
 
@@ -245,7 +245,7 @@ export default function Customers() {
             setModal(null);
             load();
         } catch (e) {
-            toast.error(e.response?.data?.detail || "Save failed");
+            toast.error(formatErr(e.response?.data?.detail) || "Save failed");
             throw e;
         }
     }
@@ -257,7 +257,7 @@ export default function Customers() {
             toast.success("Deleted");
             load();
         } catch (e) {
-            toast.error(e.response?.data?.detail || "Delete failed");
+            toast.error(formatErr(e.response?.data?.detail) || "Delete failed");
         }
     }
 

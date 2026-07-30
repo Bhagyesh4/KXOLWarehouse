@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, formatErr } from "../lib/api";
 import {
     ArrowDownToLine,
     Plus,
@@ -686,7 +686,7 @@ function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSav
             await api.post("/inbound", { ...form, items });
             onSaved();
         } catch (er) {
-            setErr(er.response?.data?.detail || er.message);
+            setErr(formatErr(er.response?.data?.detail) || er.message);
         } finally {
             setBusy(false);
         }
