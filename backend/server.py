@@ -67,22 +67,37 @@ def now_iso() -> str:
 
 def _get_anthropic_client():
     """Return (client, model) using whichever API key is available.
-    Prefers the Replit-managed integration key; falls back to ANTHROPIC_API_KEY.
-    Always honours AI_INTEGRATIONS_ANTHROPIC_BASE_URL when present so that
-    Replit's AI proxy is used regardless of which key variable is populated."""
+
+    Priority:
+      1. AI_INTEGRATIONS_ANTHROPIC_API_KEY  — Replit-managed proxy key.
+         Uses AI_INTEGRATIONS_ANTHROPIC_BASE_URL and a proxy-compatible model alias.
+      2. ANTHROPIC_API_KEY — user-supplied direct key.
+         Always talks to api.anthropic.com regardless of any integration base-url
+         setting, because the Replit proxy only accepts its own integration keys.
+    """
     import anthropic as _anthropic
     integ_key = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
     direct_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    base_url = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-    # Replit's proxy uses a short alias; only use it when going through the proxy.
-    proxy_model = "claude-sonnet-4-5"
-    direct_model = "claude-3-5-sonnet-20241022"
-    is_proxy = base_url != "https://api.anthropic.com"
-    key = integ_key or direct_key
-    if key:
+    if integ_key:
+        base_url = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
         return (
-            _anthropic.Anthropic(api_key=key, base_url=base_url),
-            proxy_model if is_proxy else direct_model,
+            _anthropic.Anthropic(api_key=integ_key, base_url=base_url),
+            "claude-sonnet-4-5",
+        )
+    if direct_key:
+        # When AI_INTEGRATIONS_ANTHROPIC_BASE_URL points to Replit's local proxy
+        # (localhost:…), use the proxy URL + proxy model alias — the key was
+        # provisioned by Replit and only works through that proxy.
+        # Otherwise talk directly to api.anthropic.com.
+        base_url = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "")
+        if base_url and "localhost" in base_url:
+            return (
+                _anthropic.Anthropic(api_key=direct_key, base_url=base_url),
+                "claude-sonnet-4-5",
+            )
+        return (
+            _anthropic.Anthropic(api_key=direct_key),
+            "claude-3-5-sonnet-20241022",
         )
     raise RuntimeError("No Anthropic API key configured. Set ANTHROPIC_API_KEY in Secrets.")
 
@@ -2056,7 +2071,17 @@ STORED WEIGHT (weight_per_bag x on-hand bags):
         return {"insights": response, "generated_at": now_iso()}
     except Exception as e:
         logging.exception("AI insights failed")
-        return {"insights": f"AI service unavailable: {str(e)}", "generated_at": now_iso()}
+        err = str(e)
+        if "not configured" in err.lower() or "not_found_error" in err.lower():
+            msg = (
+                "AI assistant requires a valid Anthropic API key.\n\n"
+                "To enable: go to your Anthropic Console (console.anthropic.com), "
+                "generate an API key, then update the ANTHROPIC_API_KEY secret in this Replit project "
+                "with that key (it must be a direct Anthropic key, not a Replit-managed one)."
+            )
+        else:
+            msg = f"AI service unavailable: {err}"
+        return {"insights": msg, "generated_at": now_iso()}
 
 
 # ─── Extended Reports ─────────────────────────────────────────────────────────
