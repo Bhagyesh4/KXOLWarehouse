@@ -1407,6 +1407,24 @@ async def list_pallets(user: dict = Depends(get_user)):
     return _db.rl(rows)
 
 
+@api.get("/storage/locations/{location_id}/stock")
+async def location_stock(location_id: str, user: dict = Depends(get_user)):
+    """Return all stock items currently occupying a specific location bin."""
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT s.id, s.qty, s.batch_no, s.expiry_date, s.received_date, "
+            "s.pallet_code, s.bag_color, s.pallet_status, "
+            "sk.sku_code, sk.name AS sku_name, sk.unit, sk.category "
+            "FROM stock s "
+            "JOIN skus sk ON sk.id = s.sku_id "
+            "WHERE s.location_id = $1 AND s.qty > 0 "
+            "ORDER BY s.received_date NULLS LAST",
+            location_id,
+        )
+    return _db.rl(rows)
+
+
 @api.post("/storage/transfer")
 async def transfer_pallet(body: TransferIn, user: dict = Depends(require_role("admin", "manager"))):
     """Move a pallet (stock record) from its current location to a different location.

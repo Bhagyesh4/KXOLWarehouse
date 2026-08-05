@@ -494,6 +494,20 @@ function WarehouseStep({ zones, selected, onSelect, onClose, onNext }) {
 /* Step 2 — pick the exact location from the interactive rack layout. */
 function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfirm }) {
     const zoneLocs = (locs || []).filter((l) => l.zone === zone.zone);
+    const [locStock, setLocStock] = useState([]);
+    const [stockLoading, setStockLoading] = useState(false);
+
+    const handleSelect = (loc) => {
+        onSelect(loc);
+        setLocStock([]);
+        if ((loc.occupied || 0) > 0) {
+            setStockLoading(true);
+            api.get(`/storage/locations/${loc.id}/stock`)
+                .then((r) => setLocStock(r.data || []))
+                .catch(() => setLocStock([]))
+                .finally(() => setStockLoading(false));
+        }
+    };
 
     // Group locations into rows → lanes for an interactive rack layout.
     const byRow = {};
@@ -610,24 +624,73 @@ function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfi
             </div>
 
             {selected && (
-                <div className="px-5 py-3 border-t border-white/10 bg-amber-500/5">
-                    <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400 mb-1">
-                        // SELECTED LOCATION
+                <div className="border-t border-white/10">
+                    {/* Location summary row */}
+                    <div className="px-5 py-3 bg-amber-500/5">
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400 mb-1">
+                            // SELECTED LOCATION
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs">
+                            <span className="text-amber-400 font-bold" data-testid="selected-loc-code">
+                                {selected.code}
+                            </span>
+                            <span className="text-gray-500">Row {selected.row_label || "—"}</span>
+                            <span className="text-gray-500">
+                                Lane L{String(selected.lane_number ?? 0).padStart(2, "0")}
+                            </span>
+                            <span className="text-gray-500">Level {selected.level ?? "—"}</span>
+                            <span className="text-gray-500">Pos {selected.position ?? "—"}</span>
+                            <span className={(selected.occupied || 0) > 0 ? "text-emerald-400" : "text-gray-500"}>
+                                {selected.occupied || 0}/{selected.capacity ?? "—"} pallets
+                            </span>
+                        </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs">
-                        <span className="text-amber-400 font-bold" data-testid="selected-loc-code">
-                            {selected.code}
-                        </span>
-                        <span className="text-gray-500">Row {selected.row_label || "—"}</span>
-                        <span className="text-gray-500">
-                            Lane L{String(selected.lane_number ?? 0).padStart(2, "0")}
-                        </span>
-                        <span className="text-gray-500">Level {selected.level ?? "—"}</span>
-                        <span className="text-gray-500">Pos {selected.position ?? "—"}</span>
-                        <span className={(selected.occupied || 0) > 0 ? "text-emerald-400" : "text-gray-500"}>
-                            {selected.occupied || 0}/{selected.capacity ?? "—"} pallets
-                        </span>
-                    </div>
+
+                    {/* Product details for occupied bins */}
+                    {(selected.occupied || 0) > 0 && (
+                        <div className="px-5 py-3 bg-[#0d0e12] border-t border-white/10">
+                            <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-2">
+                                // PALLETS IN THIS BIN
+                            </div>
+                            {stockLoading ? (
+                                <div className="text-xs text-gray-500 font-mono py-1">Loading…</div>
+                            ) : locStock.length === 0 ? (
+                                <div className="text-xs text-gray-600 font-mono py-1">No stock records found.</div>
+                            ) : (
+                                <div className="flex flex-wrap gap-2">
+                                    {locStock.map((s) => (
+                                        <div
+                                            key={s.id}
+                                            className="flex flex-col gap-0.5 bg-[#111317] border border-emerald-500/20 px-3 py-2 min-w-[160px]"
+                                        >
+                                            <div className="text-xs font-semibold text-gray-100 truncate">{s.sku_name}</div>
+                                            <div className="font-mono text-[10px] text-amber-400">{s.sku_code}</div>
+                                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                                                <span className="font-mono text-[10px] text-emerald-400">
+                                                    {s.qty} {s.unit || "EA"}
+                                                </span>
+                                                {s.pallet_code && (
+                                                    <span className="font-mono text-[10px] text-gray-500 truncate max-w-[120px]">
+                                                        {s.pallet_code}
+                                                    </span>
+                                                )}
+                                                {s.batch_no && (
+                                                    <span className="font-mono text-[10px] text-gray-500">
+                                                        Lot: {s.batch_no}
+                                                    </span>
+                                                )}
+                                                {s.expiry_date && (
+                                                    <span className={`font-mono text-[10px] ${new Date(s.expiry_date) < new Date(Date.now() + 30*86400000) ? "text-red-400" : "text-gray-500"}`}>
+                                                        Exp: {s.expiry_date}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
