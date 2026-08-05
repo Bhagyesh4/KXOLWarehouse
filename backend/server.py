@@ -840,10 +840,10 @@ async def storage_lane_inbound(
         pallet_code = body.pallet_code or f"PLT-{zone}-{row}{lane_number:02d}L{body.level:02d}P{target['position']:02d}"
         ts = now_iso()
         await conn.execute(
-            "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, expiry_date, received_date, pallet_code) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, expiry_date, received_date, pallet_code, pallet_status, original_qty) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
             str(uuid.uuid4()), body.sku_id, target["id"], 1,
-            body.batch_no, body.manufacture_date, body.expiry_date, ts, pallet_code,
+            body.batch_no, body.manufacture_date, body.expiry_date, ts, pallet_code, "full", 1,
         )
         await conn.execute("UPDATE locations SET occupied = occupied + 1 WHERE id = $1", target["id"])
     return {
@@ -1274,10 +1274,10 @@ async def shuttle_inbound(body: ShuttleInboundIn, user: dict = Depends(require_r
         pallet_code = body.pallet_code or f"PLT-SZA-{body.lane_no:02d}{body.level_no:02d}{next_depth:02d}"
         stock_id = str(uuid.uuid4())
         await conn.execute(
-            "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, expiry_date, received_date, pallet_code) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, expiry_date, received_date, pallet_code, pallet_status, original_qty) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
             stock_id, body.sku_id, target_bin["id"], 1,
-            body.batch_no, body.manufacture_date, body.expiry_date, ts, pallet_code,
+            body.batch_no, body.manufacture_date, body.expiry_date, ts, pallet_code, "full", 1,
         )
         await conn.execute("UPDATE locations SET occupied = occupied + 1 WHERE id=$1", target_bin["id"])
         sku = await conn.fetchrow("SELECT sku_code FROM skus WHERE id=$1", body.sku_id)
@@ -1619,10 +1619,11 @@ async def _execute_receive(conn, order: dict) -> None:
         else:
             await conn.execute(
                 "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, "
-                "expiry_date, received_date, bag_color, ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                "expiry_date, received_date, bag_color, ref, pallet_status, original_qty) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
                 str(uuid.uuid4()), item["sku_id"], item["location_id"], item["qty"],
                 item.get("batch_no"), item.get("manufacture_date"),
-                item.get("expiry_date"), received_at, color, order["po_number"],
+                item.get("expiry_date"), received_at, color, order["po_number"], "full", item["qty"],
             )
         await conn.execute(
             "UPDATE skus SET total_stock = total_stock + $1 WHERE id=$2", item["qty"], item["sku_id"]
@@ -1836,8 +1837,16 @@ async def advance_outbound(order_id: str, user: dict = Depends(require_role("adm
                 items = await conn.fetch("SELECT * FROM outbound_items WHERE outbound_id=$1", order_id)
                 for item in items:
                     remaining = item["qty"]
+                    # Partial pallets (oldest first) → full pallets (FIFO by received_date)
                     stocks = await conn.fetch(
-                        "SELECT * FROM stock WHERE sku_id=$1 AND qty > 0", item["sku_id"]
+                        """SELECT * FROM stock
+                           WHERE sku_id=$1 AND qty > 0
+                             AND COALESCE(pallet_status,'full') NOT IN ('damaged','quality_hold','empty')
+                           ORDER BY
+                             CASE WHEN COALESCE(pallet_status,'full')='partial' THEN 0 ELSE 1 END,
+                             COALESCE(partial_since, received_date, ''),
+                             received_date NULLS LAST""",
+                        item["sku_id"]
                     )
                     for s in stocks:
                         if remaining <= 0:
@@ -1857,6 +1866,30 @@ async def advance_outbound(order_id: str, user: dict = Depends(require_role("adm
                             take, row["so_number"], now_iso(),
                         )
                         remaining -= take
+                        # Update pallet status after deduction
+                        new_qty = s["qty"] - take
+                        ts = now_iso()
+                        if new_qty <= 0:
+                            await conn.execute(
+                                "UPDATE stock SET pallet_status='empty' WHERE id=$1", s["id"]
+                            )
+                        else:
+                            orig = s["original_qty"] if s["original_qty"] is not None else (s["qty"] + take)
+                            if new_qty < orig:
+                                await conn.execute(
+                                    "UPDATE stock SET pallet_status='partial', "
+                                    "partial_since=COALESCE(partial_since,$1) WHERE id=$2",
+                                    ts, s["id"]
+                                )
+                                await conn.execute(
+                                    "INSERT INTO partial_pallet_history "
+                                    "(id,stock_id,transaction_type,outbound_id,so_number,"
+                                    "user_name,qty_picked,remaining_qty,prev_location_id,timestamp) "
+                                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                                    str(uuid.uuid4()), s["id"], "outbound_ship",
+                                    order_id, row["so_number"],
+                                    user.get("name", ""), take, new_qty, s["location_id"], ts
+                                )
                     deducted = item["qty"] - remaining
                     await conn.execute(
                         "UPDATE skus SET total_stock=GREATEST(0, total_stock-$1) WHERE id=$2",
@@ -1864,6 +1897,145 @@ async def advance_outbound(order_id: str, user: dict = Depends(require_role("adm
                     )
             await conn.execute("UPDATE outbound SET status=$1 WHERE id=$2", nxt, order_id)
     return {"ok": True, "status": nxt}
+
+
+# ── Partial Pallet Management ──────────────────────────────────────────────────
+
+class PartialPalletStatusIn(BaseModel):
+    status: str  # partial, damaged, quality_hold
+
+
+@api.get("/partial-pallets/dashboard")
+async def partial_pallets_dashboard(
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        stats = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE COALESCE(pallet_status,'full')='partial') AS total_partial,
+                COALESCE(SUM(qty) FILTER (WHERE COALESCE(pallet_status,'full')='partial'), 0) AS total_qty,
+                COUNT(DISTINCT sku_id) FILTER (WHERE COALESCE(pallet_status,'full')='partial') AS product_count,
+                MIN(COALESCE(partial_since, received_date))
+                    FILTER (WHERE COALESCE(pallet_status,'full')='partial') AS oldest,
+                COUNT(*) FILTER (
+                    WHERE COALESCE(pallet_status,'full')='partial'
+                      AND expiry_date IS NOT NULL
+                      AND expiry_date <= (CURRENT_DATE + INTERVAL '30 days')::TEXT
+                ) AS near_expiry_count,
+                AVG(
+                    CASE WHEN original_qty > 0 THEN qty::float / original_qty ELSE NULL END
+                ) FILTER (WHERE COALESCE(pallet_status,'full')='partial') AS avg_utilization
+            FROM stock
+            WHERE qty > 0
+        """)
+        oldest_days = None
+        if stats["oldest"]:
+            try:
+                oldest_dt = datetime.fromisoformat(stats["oldest"].replace("Z", "+00:00"))
+                oldest_days = (datetime.now(timezone.utc) - oldest_dt).days
+            except Exception:
+                pass
+        return {
+            "total_partial": stats["total_partial"] or 0,
+            "total_qty": int(stats["total_qty"] or 0),
+            "product_count": stats["product_count"] or 0,
+            "oldest_days": oldest_days,
+            "near_expiry_count": stats["near_expiry_count"] or 0,
+            "utilization_pct": round((stats["avg_utilization"] or 0) * 100, 1),
+        }
+
+
+@api.get("/partial-pallets")
+async def list_partial_pallets(
+    sku_id: Optional[str] = None,
+    batch_no: Optional[str] = None,
+    status: Optional[str] = None,
+    expiry_before: Optional[str] = None,
+    location_id: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        q = """
+            SELECT s.id, s.sku_id, s.location_id, s.qty, s.original_qty,
+                   s.batch_no, s.manufacture_date, s.expiry_date, s.received_date,
+                   s.pallet_code, s.pallet_status, s.partial_since,
+                   sk.sku_code, sk.name AS sku_name, sk.unit,
+                   l.code AS location_code, l.zone, l.zone_name,
+                   l.row_label, l.lane_number, l.level
+            FROM stock s
+            JOIN skus sk ON sk.id = s.sku_id
+            LEFT JOIN locations l ON l.id = s.location_id
+            WHERE COALESCE(s.pallet_status, 'full') IN ('partial','damaged','quality_hold')
+              AND s.qty > 0
+        """
+        params: list = []
+        if sku_id:
+            params.append(sku_id)
+            q += f" AND s.sku_id=${len(params)}"
+        if batch_no:
+            params.append(f"%{batch_no}%")
+            q += f" AND s.batch_no ILIKE ${len(params)}"
+        if status:
+            params.append(status)
+            q += f" AND s.pallet_status=${len(params)}"
+        if expiry_before:
+            params.append(expiry_before)
+            q += f" AND s.expiry_date <= ${len(params)}"
+        if location_id:
+            params.append(location_id)
+            q += f" AND s.location_id=${len(params)}"
+        q += " ORDER BY COALESCE(s.partial_since, s.received_date) NULLS LAST"
+        rows = await conn.fetch(q, *params)
+        now_dt = datetime.now(timezone.utc)
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get("partial_since"):
+                try:
+                    ps = datetime.fromisoformat(d["partial_since"].replace("Z", "+00:00"))
+                    d["partial_age_days"] = (now_dt - ps).days
+                except Exception:
+                    d["partial_age_days"] = None
+            else:
+                d["partial_age_days"] = None
+            result.append(d)
+        return result
+
+
+@api.get("/partial-pallets/{stock_id}/history")
+async def get_partial_pallet_history(
+    stock_id: str,
+    user: dict = Depends(require_role("admin", "manager", "operator")),
+):
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM partial_pallet_history WHERE stock_id=$1 ORDER BY timestamp DESC",
+            stock_id,
+        )
+        return [dict(r) for r in rows]
+
+
+@api.patch("/partial-pallets/{stock_id}/status")
+async def update_partial_pallet_status(
+    stock_id: str,
+    body: PartialPalletStatusIn,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    valid = {"partial", "damaged", "quality_hold"}
+    if body.status not in valid:
+        raise HTTPException(400, f"status must be one of: {', '.join(sorted(valid))}")
+    pool = await _db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM stock WHERE id=$1", stock_id)
+        if not row:
+            raise HTTPException(404, "Pallet not found")
+        await conn.execute(
+            "UPDATE stock SET pallet_status=$1 WHERE id=$2", body.status, stock_id
+        )
+    return {"ok": True}
 
 
 async def _resolve_pallet(conn, barcode: str):
@@ -2872,11 +3044,11 @@ async def seed_data():
                     exp = (datetime.now(timezone.utc) + timedelta(days=random.randint(15,365))).date().isoformat()
                     recv = (datetime.now(timezone.utc) - timedelta(days=random.randint(1,13))).isoformat()
                     await conn.execute(
-                        "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, expiry_date, received_date) "
-                        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                        "INSERT INTO stock (id, sku_id, location_id, qty, batch_no, manufacture_date, expiry_date, received_date, pallet_status, original_qty) "
+                        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
                         str(uuid.uuid4()), sku["id"], loc["id"], 1,
                         f"B{random.randint(1000,9999)}-{sku['sku_code'][-3:]}",
-                        mfg, exp, recv,
+                        mfg, exp, recv, "full", 1,
                     )
                     await conn.execute("UPDATE locations SET occupied=1 WHERE id=$1", loc["id"])
                     mv_ts = (datetime.now(timezone.utc) - timedelta(days=random.randint(1,13), hours=random.randint(0,23))).isoformat()

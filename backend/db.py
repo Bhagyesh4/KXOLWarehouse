@@ -88,10 +88,29 @@ CREATE TABLE IF NOT EXISTS stock (
     ref              TEXT
 );
 
-ALTER TABLE stock ADD COLUMN IF NOT EXISTS bag_color VARCHAR(50);
+ALTER TABLE stock ADD COLUMN IF NOT EXISTS bag_color      VARCHAR(50);
+ALTER TABLE stock ADD COLUMN IF NOT EXISTS pallet_status  TEXT DEFAULT 'full';
+ALTER TABLE stock ADD COLUMN IF NOT EXISTS original_qty   INT;
+ALTER TABLE stock ADD COLUMN IF NOT EXISTS partial_since  TEXT;
 
-CREATE INDEX IF NOT EXISTS idx_stock_loc  ON stock(location_id);
-CREATE INDEX IF NOT EXISTS idx_stock_sku  ON stock(sku_id);
+CREATE INDEX IF NOT EXISTS idx_stock_loc    ON stock(location_id);
+CREATE INDEX IF NOT EXISTS idx_stock_sku    ON stock(sku_id);
+CREATE INDEX IF NOT EXISTS idx_stock_status ON stock(pallet_status);
+
+CREATE TABLE IF NOT EXISTS partial_pallet_history (
+    id               TEXT PRIMARY KEY,
+    stock_id         TEXT NOT NULL,
+    transaction_type TEXT NOT NULL,
+    outbound_id      TEXT,
+    so_number        TEXT,
+    user_name        TEXT,
+    qty_picked       INT  NOT NULL,
+    remaining_qty    INT  NOT NULL,
+    prev_location_id TEXT,
+    new_location_id  TEXT,
+    timestamp        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pph_stock ON partial_pallet_history(stock_id);
 
 CREATE TABLE IF NOT EXISTS movements (
     id          TEXT PRIMARY KEY,

@@ -13,6 +13,7 @@ import Transfer from "./pages/Transfer";
 import Reports from "./pages/Reports";
 import Customers from "./pages/Customers";
 import Admin from "./pages/Admin";
+import PartialPallets from "./pages/PartialPallets";
 import PrintGRN from "./pages/PrintGRN";
 import PrintPickList from "./pages/PrintPickList";
 import PrintPalletLabels from "./pages/PrintPalletLabels";
@@ -65,6 +66,7 @@ export default function App() {
                         <Route path="/transfer" element={<Transfer />} />
                         <Route path="/shuttle" element={<Navigate to="/storage" replace />} />
                         <Route path="/customers" element={<Customers />} />
+                        <Route path="/partial-pallets" element={<PartialPallets />} />
                         <Route path="/reports" element={<Reports />} />
                         <Route path="/admin" element={<Admin />} />
                     </Route>

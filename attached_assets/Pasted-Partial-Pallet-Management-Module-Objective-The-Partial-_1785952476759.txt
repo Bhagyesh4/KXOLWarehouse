@@ -1,0 +1,131 @@
+Partial Pallet Management Module
+Objective
+
+The Partial Pallet Management module will track pallets that have been partially consumed and ensure these pallets are allocated first during outbound operations before using any full pallets. This helps reduce inventory waste, improves warehouse utilization, and maintains accurate stock records.
+
+Features
+1. Partial Pallet Creation
+
+Whenever an outbound transaction picks less than the available quantity on a full pallet:
+
+Automatically convert the pallet status from Full to Partial.
+Record the remaining quantity.
+Save the remaining weight/units/cartons.
+Record the current warehouse location.
+Maintain complete pallet traceability.
+2. Partial Pallet Inventory
+
+Display all partially used pallets in a dedicated screen.
+
+Columns:
+
+Pallet Barcode
+Product
+SKU
+Batch/Lot Number
+Expiry Date
+Warehouse
+Zone
+Rack
+Bin
+Original Quantity
+Remaining Quantity
+UOM
+Current Status
+Last Movement Date
+Age (Days)
+
+Filters:
+
+Product
+SKU
+Warehouse
+Batch
+Expiry
+Status
+Location
+3. Automatic Outbound Priority
+
+When a Sales Order or Pick List is generated:
+
+System should allocate inventory in the following order:
+
+Partial Pallets (Oldest First)
+Full Pallets (FIFO)
+Newest Stock (if required)
+
+This ensures all partially used pallets are cleared before opening new pallets.
+
+4. Picking Logic
+
+Example:
+
+Inventory
+
+Pallet A = 25 cartons (Partial)
+Pallet B = 100 cartons (Full)
+Pallet C = 100 cartons (Full)
+
+Sales Order = 60 cartons
+
+Allocation:
+
+25 cartons from Pallet A
+35 cartons from Pallet B
+
+Remaining:
+
+Pallet A → Closed
+Pallet B → Partial (65 cartons)
+Pallet C → Full
+5. Partial Pallet Status
+
+Available statuses:
+
+Partial Available
+Reserved
+Picked
+Outbound Completed
+Empty
+Damaged
+Quality Hold
+6. Automatic Updates
+
+System should automatically:
+
+Update remaining quantity after every pick.
+Mark pallet as Empty when remaining quantity becomes zero.
+Remove empty pallets from available inventory.
+Create movement history for every transaction.
+7. Partial Pallet History
+
+Maintain complete audit trail:
+
+Date & Time
+Transaction Type
+Sales Order
+Pick List
+User
+Quantity Picked
+Remaining Quantity
+Previous Location
+New Location
+8. Dashboard
+
+Dashboard should display:
+
+Total Partial Pallets
+Total Quantity in Partial Pallets
+Products with Partial Stock
+Oldest Partial Pallets
+Partial Pallets Near Expiry
+Partial Pallet Utilization %
+Business Rules
+Only one inventory record per physical pallet.
+Partial pallets must always have higher picking priority than full pallets.
+If multiple partial pallets exist, allocate using FIFO (oldest receipt or oldest partial creation date).
+Full pallets should only be used when partial pallets cannot fulfill the required quantity.
+Inventory quantities must always remain synchronized with pallet records.
+Every inventory movement must be fully traceable and auditable.
+
+This module minimizes warehouse waste, improves pallet utilization, and ensures efficient FIFO-based outbound processing while maintaining complete inventory traceability.
