@@ -715,21 +715,23 @@ function LocationStep({ zone, locs, pallets, selected, onSelect, onClose, onBack
 }
 
 function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSaved }) {
+    const todayIso = new Date().toISOString().slice(0, 10);
+
+    const blankItem = () => ({
+        sku_id: "",
+        qty: 1,
+        bag_color: "",
+        batch_no: "",
+        manufacture_date: todayIso,
+        expiry_date: "",
+    });
+
     const [form, setForm] = useState({
         po_number: `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
         supplier: "",
         vendor_id: "",
         expected_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-        items: [
-            {
-                sku_id: "",
-                qty: 1,
-                bag_color: "",
-                batch_no: "",
-                manufacture_date: "",
-                expiry_date: "",
-            },
-        ],
+        items: [blankItem()],
     });
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
@@ -754,20 +756,7 @@ function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSav
     };
 
     const addRow = () =>
-        setForm({
-            ...form,
-            items: [
-                ...form.items,
-                {
-                    sku_id: "",
-                    qty: 1,
-                    bag_color: "",
-                    batch_no: "",
-                    manufacture_date: "",
-                    expiry_date: "",
-                },
-            ],
-        });
+        setForm({ ...form, items: [...form.items, blankItem()] });
 
     const updateRow = (i, k, v) => {
         const items = [...form.items];
@@ -777,9 +766,21 @@ function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSav
 
     const selectSku = (i, skuId) => {
         const sku = skus.find((s) => s.id === skuId);
+        const mfgDate = todayIso;
         const items = [...form.items];
-        const row = { ...items[i], sku_id: skuId };
+        const row = { ...items[i], sku_id: skuId, manufacture_date: mfgDate };
+        // Default bag color from SKU
         if (!row.bag_color && sku?.bag_color) row.bag_color = sku.bag_color;
+        // Auto-fill qty from bags_per_pallet
+        if (sku?.bags_per_pallet) row.qty = sku.bags_per_pallet;
+        // Auto-calculate expiry date
+        if (sku?.expire_in_days) {
+            const exp = new Date(mfgDate);
+            exp.setDate(exp.getDate() + sku.expire_in_days);
+            row.expiry_date = exp.toISOString().slice(0, 10);
+        } else {
+            row.expiry_date = "";
+        }
         items[i] = row;
         setForm({ ...form, items });
     };
@@ -945,27 +946,29 @@ function NewInboundModal({ skus, vendors, zone, location, onBack, onClose, onSav
                                             className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
                                         />
                                         <label className="flex flex-col gap-1">
-                                            <span className="text-[10px] text-gray-500 uppercase tracking-widest">Manufacturing Date</span>
+                                            <span className="text-[10px] text-gray-500 uppercase tracking-widest flex items-center gap-1">
+                                                Manufacturing Date
+                                                <span className="text-amber-500/60 text-[8px]">AUTO</span>
+                                            </span>
                                             <input
                                                 data-testid={`inbound-item-mfg-${i}`}
                                                 type="date"
                                                 value={it.manufacture_date}
-                                                onChange={(e) =>
-                                                    updateRow(i, "manufacture_date", e.target.value)
-                                                }
-                                                className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                                readOnly
+                                                className="bg-[#090a0c] border border-white/5 px-2 py-1.5 text-xs font-mono text-gray-400 cursor-default"
                                             />
                                         </label>
                                         <label className="flex flex-col gap-1">
-                                            <span className="text-[10px] text-gray-500 uppercase tracking-widest">Expiry Date</span>
+                                            <span className="text-[10px] text-gray-500 uppercase tracking-widest flex items-center gap-1">
+                                                Expiry Date
+                                                <span className="text-amber-500/60 text-[8px]">AUTO</span>
+                                            </span>
                                             <input
                                                 data-testid={`inbound-item-exp-${i}`}
                                                 type="date"
                                                 value={it.expiry_date}
-                                                onChange={(e) =>
-                                                    updateRow(i, "expiry_date", e.target.value)
-                                                }
-                                                className="bg-[#090a0c] border border-white/10 px-2 py-1.5 text-xs font-mono"
+                                                readOnly
+                                                className="bg-[#090a0c] border border-white/5 px-2 py-1.5 text-xs font-mono text-gray-400 cursor-default"
                                             />
                                         </label>
                                     </div>

@@ -121,6 +121,7 @@ class SkuIn(BaseModel):
     unit: str = "EA"
     unit_price: float = 0.0
     reorder_level: int = 10
+    expire_in_days: Optional[int] = None
 
 
 BAG_COLORS = {"Green", "White", "Yellow"}
@@ -454,11 +455,11 @@ async def create_sku(body: SkuIn, user: dict = Depends(require_role("admin", "ma
         ts = now_iso()
         await conn.execute(
             "INSERT INTO skus (id, sku_code, name, category, bag_color, weight_per_bag, "
-            "bags_per_pallet, dimensions, unit, unit_price, reorder_level, total_stock, created_at) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+            "bags_per_pallet, dimensions, unit, unit_price, reorder_level, total_stock, created_at, expire_in_days) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
             sid, body.sku_code, body.name, body.category,
             body.bag_color, _to_decimal(body.weight_per_bag), body.bags_per_pallet, body.dimensions,
-            body.unit, body.unit_price, body.reorder_level, 0, ts,
+            body.unit, body.unit_price, body.reorder_level, 0, ts, body.expire_in_days,
         )
     return {**body.model_dump(), "id": sid, "total_stock": 0, "created_at": ts}
 
@@ -470,10 +471,10 @@ async def update_sku(sku_id: str, body: SkuIn, user: dict = Depends(require_role
     async with pool.acquire() as conn:
         res = await conn.execute(
             "UPDATE skus SET sku_code=$1, name=$2, category=$3, bag_color=$4, weight_per_bag=$5, "
-            "bags_per_pallet=$6, dimensions=$7, unit=$8, unit_price=$9, reorder_level=$10 WHERE id=$11",
+            "bags_per_pallet=$6, dimensions=$7, unit=$8, unit_price=$9, reorder_level=$10, expire_in_days=$11 WHERE id=$12",
             body.sku_code, body.name, body.category,
             body.bag_color, _to_decimal(body.weight_per_bag), body.bags_per_pallet, body.dimensions,
-            body.unit, body.unit_price, body.reorder_level, sku_id,
+            body.unit, body.unit_price, body.reorder_level, body.expire_in_days, sku_id,
         )
         if res == "UPDATE 0":
             raise HTTPException(404, "SKU not found")

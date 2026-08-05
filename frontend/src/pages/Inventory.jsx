@@ -444,6 +444,7 @@ export default function Inventory() {
                                 />
                                 <Detail label="Weight per Bag" value={view.weight_per_bag != null ? view.weight_per_bag : "—"} />
                                 <Detail label="Bags per Pallet" value={view.bags_per_pallet != null ? view.bags_per_pallet : "—"} />
+                                <Detail label="Expire in Days" value={view.expire_in_days != null ? view.expire_in_days : "—"} />
                                 <Detail label="Dimensions" value={view.dimensions || "—"} />
                                 <Detail label="Unit" value={view.unit} />
                                 <Detail label="Unit Price" value={`$${view.unit_price.toFixed(2)}`} />
@@ -589,6 +590,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
             unit: "EA",
             unit_price: 0,
             reorder_level: 10,
+            expire_in_days: "",
         }
     );
     const [busy, setBusy] = useState(false);
@@ -625,6 +627,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                 dimensions: f.dimensions.trim(),
                 unit_price: parseFloat(f.unit_price) || 0,
                 reorder_level: parseInt(f.reorder_level) || 0,
+                expire_in_days: f.expire_in_days !== "" ? parseInt(f.expire_in_days) || null : null,
             });
         } catch (er) {
             setErr(formatErr(er.response?.data?.detail) || er.message);
@@ -656,6 +659,7 @@ function SkuFormModal({ onClose, onSave, initial }) {
                         <FormField label="Unit" type="select" options={unitOptions} value={f.unit} onChange={(v) => setF({ ...f, unit: v })} testid="form-sku-unit" />
                         <FormField label="Reorder Level" type="number" value={f.reorder_level} onChange={(v) => setF({ ...f, reorder_level: v })} testid="form-sku-reorder" />
                     </div>
+                    <FormField label="Expire in Days" type="number" min="0" value={f.expire_in_days} onChange={(v) => setF({ ...f, expire_in_days: v })} testid="form-sku-expire" />
                     {err && <div className="text-xs text-red-400 font-mono">{err}</div>}
                     <button
                         type="submit"
