@@ -44,24 +44,27 @@ export default function Inbound() {
     const [locs, setLocs] = useState([]);
     const [zones, setZones] = useState([]);
     const [vendors, setVendors] = useState([]);
+    const [pallets, setPallets] = useState([]);
     const [open, setOpen] = useState(false);
     const [putawayOrder, setPutawayOrder] = useState(null);
 
     const canCreate = user?.role === "admin" || user?.role === "manager";
 
     const load = async () => {
-        const [a, b, c, d, e] = await Promise.all([
+        const [a, b, c, d, e, f] = await Promise.all([
             api.get("/inbound"),
             api.get("/inventory/skus"),
             api.get("/storage/locations"),
             api.get("/storage/zones"),
             api.get("/vendors"),
+            api.get("/storage/pallets"),
         ]);
         setOrders(a.data);
         setSkus(b.data);
         setLocs(c.data);
         setZones(d.data);
         setVendors(e.data);
+        setPallets(f.data);
     };
 
     useEffect(() => {
@@ -132,6 +135,7 @@ export default function Inbound() {
                     zones={zones}
                     skus={skus}
                     locs={locs}
+                    pallets={pallets}
                     vendors={vendors}
                     onClose={() => setOpen(false)}
                     onSaved={() => {
@@ -328,7 +332,7 @@ function Column({ title, count, color, items, skuMap, locMap, onReceive, onPutaw
 }
 
 /* ─── New Inbound Flow: Warehouse → Location → Purchase Order ─── */
-function NewInboundFlow({ zones, skus, locs, vendors, onClose, onSaved }) {
+function NewInboundFlow({ zones, skus, locs, pallets, vendors, onClose, onSaved }) {
     const [step, setStep] = useState("warehouse");
     const [zone, setZone] = useState(null);
     const [location, setLocation] = useState(null);
@@ -354,6 +358,7 @@ function NewInboundFlow({ zones, skus, locs, vendors, onClose, onSaved }) {
             <LocationStep
                 zone={zone}
                 locs={locs}
+                pallets={pallets}
                 selected={location}
                 onSelect={setLocation}
                 onClose={onClose}
@@ -492,21 +497,16 @@ function WarehouseStep({ zones, selected, onSelect, onClose, onNext }) {
 }
 
 /* Step 2 — pick the exact location from the interactive rack layout. */
-function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfirm }) {
+function LocationStep({ zone, locs, pallets, selected, onSelect, onClose, onBack, onConfirm }) {
     const zoneLocs = (locs || []).filter((l) => l.zone === zone.zone);
-    const [locStock, setLocStock] = useState([]);
-    const [stockLoading, setStockLoading] = useState(false);
+
+    // Filter pre-loaded pallets for the clicked location — no extra API call needed
+    const locStock = selected
+        ? (pallets || []).filter((p) => p.location_id === selected.id)
+        : [];
 
     const handleSelect = (loc) => {
         onSelect(loc);
-        setLocStock([]);
-        if ((loc.occupied || 0) > 0) {
-            setStockLoading(true);
-            api.get(`/storage/bin-stock`, { params: { location_id: loc.id } })
-                .then((r) => setLocStock(r.data || []))
-                .catch(() => setLocStock([]))
-                .finally(() => setStockLoading(false));
-        }
     };
 
     // Group locations into rows → lanes for an interactive rack layout.
@@ -652,9 +652,7 @@ function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfi
                             <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-2">
                                 // PALLETS IN THIS BIN
                             </div>
-                            {stockLoading ? (
-                                <div className="text-xs text-gray-500 font-mono py-1">Loading…</div>
-                            ) : locStock.length === 0 ? (
+                            {locStock.length === 0 ? (
                                 <div className="text-xs text-gray-600 font-mono py-1">No stock records found.</div>
                             ) : (
                                 <div className="flex flex-wrap gap-2">
