@@ -502,7 +502,7 @@ function LocationStep({ zone, locs, selected, onSelect, onClose, onBack, onConfi
         setLocStock([]);
         if ((loc.occupied || 0) > 0) {
             setStockLoading(true);
-            api.get(`/storage/locations/${loc.id}/stock`)
+            api.get(`/storage/bin-stock`, { params: { location_id: loc.id } })
                 .then((r) => setLocStock(r.data || []))
                 .catch(() => setLocStock([]))
                 .finally(() => setStockLoading(false));

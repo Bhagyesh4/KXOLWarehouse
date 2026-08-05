@@ -1407,8 +1407,8 @@ async def list_pallets(user: dict = Depends(get_user)):
     return _db.rl(rows)
 
 
-@api.get("/storage/locations/{location_id}/stock")
-async def location_stock(location_id: str, user: dict = Depends(get_user)):
+@api.get("/storage/bin-stock")
+async def bin_stock(location_id: str, user: dict = Depends(get_user)):
     """Return all stock items currently occupying a specific location bin."""
     pool = await _db.get_pool()
     async with pool.acquire() as conn:
